@@ -82,10 +82,6 @@ class SerialConnection:
         self.mc = mc
 
     def handle_rx(self, data: bytearray):
-        # Log raw received data for debugging
-        if self.mc and hasattr(self.mc, 'log_debug'):
-            self.mc.log_debug(f"Serial RX raw: {data.hex()}")
-        
         headerlen = len(self.header)
         framelen = len(self.inframe)
         if not self.frame_started : # wait start of frame
@@ -162,10 +158,6 @@ class TCPConnection:
         self.mc = mc
 
     def handle_rx(self, data: bytearray):
-        # Log raw received data for debugging
-        if self.mc and hasattr(self.mc, 'log_debug'):
-            self.mc.log_debug(f"TCP RX raw: {data.hex()}")
-            
         cur_data = data
         while (len(cur_data) > 0):
             # Check if we have enough data for a valid frame (at least 3 bytes for header)
@@ -287,10 +279,6 @@ class BLEConnection:
         self.mc = mc
 
     def handle_rx(self, _: BleakGATTCharacteristic, data: bytearray):
-        # Log raw received data for debugging
-        if self.mc and hasattr(self.mc, 'log_debug'):
-            self.mc.log_debug(f"BLE RX raw: {data.hex()}")
-            
         if not self.mc is None:
             try:
                 self.mc.handle_rx(data)
@@ -340,9 +328,6 @@ class MeshCore:
 
     def handle_rx(self, data: bytearray):
         """ Callback to handle received data """
-        # Log the raw data packet
-        self.log_debug(f"RX data[0]={data[0]} (0x{data[0]:02x}), length={len(data)}, raw={data.hex()}")
-        
         match data[0]:
             case 0: # ok
                 self.log_debug(f"OK response: {data[1:].hex()}")

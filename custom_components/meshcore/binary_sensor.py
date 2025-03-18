@@ -38,42 +38,65 @@ async def async_setup_entry(
     """Set up MeshCore message entities from config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
-    _LOGGER.debug("Setting up MeshCore message entities")
+    # Store the async_add_entities function for later use
+    coordinator.binary_sensor_add_entities = async_add_entities
     
-    entities = []
+    # Track contacts we've already created entities for
+    coordinator.tracked_contacts = set()
     
-    # Add channel message entities for channels 0-3
-    for channel_idx in range(4):  # Channels 0, 1, 2, 3
-        safe_channel = f"{CHANNEL_PREFIX}{channel_idx}"
-        _LOGGER.debug(f"Creating channel entity for channel {channel_idx} with entity_key {safe_channel}")
-        entities.append(MeshCoreMessageEntity(
-            coordinator,
-            safe_channel,
-            f"Channel {channel_idx} Messages"
-        ))
-    
-    # Create an entity for each contact
-    contacts = coordinator.data.get("contacts", [])
-    if contacts:
+    # Function to create and add entities for all contacts
+    @callback
+    def create_contact_entities(contacts=None):
+        _LOGGER.info(f"Creating contact message entities with {len(contacts) if contacts else 0} contacts")
+        entities = []
+        
+        # Add channel entities (only first time)
+        if not hasattr(coordinator, "channels_added") or not coordinator.channels_added:
+            # Add channel message entities for channels 0-3
+            for channel_idx in range(4):
+                safe_channel = f"{CHANNEL_PREFIX}{channel_idx}"
+                entities.append(MeshCoreMessageEntity(
+                    coordinator, safe_channel, f"Channel {channel_idx} Messages"
+                ))
+            coordinator.channels_added = True
+        
+        # Only proceed if we have contacts
+        if not contacts:
+            _LOGGER.warning("No contacts provided for entity creation")
+            return
         for contact in contacts:
             if not isinstance(contact, dict):
                 continue
                 
             contact_name = contact.get("adv_name", "")
+            public_key = contact.get("public_key", "")
+            
+            # Skip if we already have an entity for this contact
+            contact_id = public_key or contact_name
+            if contact_id in coordinator.tracked_contacts:
+                continue
+                
             if contact_name:
                 safe_name = sanitize_name(contact_name)
-                _LOGGER.debug(f"Creating contact entity for '{contact_name}' with safe name '{safe_name}'")
-                entities.append(MeshCoreMessageEntity(
-                    coordinator,
-                    safe_name,
-                    f"{contact_name} Messages",
-                    public_key=contact.get("public_key", "")
-                ))
+                _LOGGER.info(f"Creating message entity for contact: {contact_name}")
+                new_entity = MeshCoreMessageEntity(
+                    coordinator, safe_name, f"{contact_name} Messages", 
+                    public_key=public_key
+                )
+                entities.append(new_entity)
+                coordinator.tracked_contacts.add(contact_id)
+        
+        # Add entities if any were created
+        if entities:
+            _LOGGER.info(f"Adding {len(entities)} new contact message entities")
+            async_add_entities(entities)
     
-    _LOGGER.debug(f"Created entities: {entities}")
+    # Run initially with the current contacts
+    initial_contacts = coordinator.data.get("contacts", [])
+    create_contact_entities(initial_contacts)
     
-    # Add the entities
-    async_add_entities(entities)
+    # Store the function on the coordinator for future calls
+    coordinator.create_binary_sensor_entities = create_contact_entities
 
 
 class MeshCoreMessageEntity(CoordinatorEntity, BinarySensorEntity):

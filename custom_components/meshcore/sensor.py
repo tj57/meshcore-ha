@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
@@ -273,11 +273,24 @@ async def async_setup_entry(
     # Add a contact list sensor to track all contacts
     entities.append(MeshCoreContactListSensor(coordinator))
     
-    # Create a diagnostic sensor for each contact
-    contacts = coordinator.data.get("contacts", [])
-    if contacts:
-        _LOGGER.debug("Creating diagnostic sensors for %d contacts", len(contacts))
+    # Store the async_add_entities function for later use
+    coordinator.sensor_add_entities = async_add_entities
+    
+    # Track contacts we've already created sensors for
+    if not hasattr(coordinator, "tracked_diagnostic_contacts"):
+        coordinator.tracked_diagnostic_contacts = set()
+    
+    # Function to create and add contact diagnostic sensors
+    @callback
+    def create_contact_diagnostic_sensors(contacts=None):
+        _LOGGER.info(f"Creating contact diagnostic sensors with {len(contacts) if contacts else 0} contacts")
+        new_entities = []
         
+        # Only proceed if we have contacts
+        if not contacts:
+            _LOGGER.warning("No contacts provided for diagnostic sensor creation")
+            return
+            
         for contact in contacts:
             if not isinstance(contact, dict):
                 continue
@@ -285,14 +298,22 @@ async def async_setup_entry(
             try:
                 name = contact.get("adv_name", "Unknown")
                 public_key = contact.get("public_key", "")
-                node_type = contact.get("type")
                 
                 if not public_key:
                     continue
                     
-                # Create a unique ID for this contact - filter out any empty parts
+                # Skip if we already have a sensor for this contact
+                if public_key in coordinator.tracked_diagnostic_contacts:
+                    continue
+                    
+                # Track this contact
+                coordinator.tracked_diagnostic_contacts.add(public_key)
+                    
+                # Create a unique ID for this contact
                 parts = [part for part in [entry.entry_id, "contact", public_key[:10]] if part]
                 contact_id = "_".join(parts)
+                
+                _LOGGER.info(f"Creating diagnostic sensor for contact: {name}")
                 
                 # Create diagnostic sensor for this contact
                 sensor = MeshCoreContactDiagnosticSensor(
@@ -302,12 +323,24 @@ async def async_setup_entry(
                     contact_id
                 )
                 
-                # Initialize attributes, icon, and name based on node type
+                # Initialize attributes, icon, and name
                 sensor._update_attributes()
-                entities.append(sensor)
+                new_entities.append(sensor)
                 
             except Exception as ex:
                 _LOGGER.error("Error setting up contact diagnostic sensor: %s", ex)
+        
+        # Add entities if any were created
+        if new_entities:
+            _LOGGER.info(f"Adding {len(new_entities)} new contact diagnostic sensors")
+            async_add_entities(new_entities)
+    
+    # Initial entity creation with current contacts
+    initial_contacts = coordinator.data.get("contacts", [])
+    create_contact_diagnostic_sensors(initial_contacts)
+    
+    # Store the function on the coordinator for future calls
+    coordinator.create_contact_diagnostic_sensors = create_contact_diagnostic_sensors
     
     # First, handle cleanup of removed repeater devices
     # Get registries

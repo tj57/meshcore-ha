@@ -164,6 +164,24 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self._repeater_stats = {}
         self._repeater_login_times = {}
         
+        # Helper method to create entities for new contacts
+        async def _create_new_contact_entities(self, latest_contacts=None):
+            """Create entities for newly discovered contacts."""
+            self.logger.info(f"Create New Contact Entities with {len(latest_contacts) if latest_contacts else 0} contacts")
+            
+            # Binary sensor entities
+            if hasattr(self, "create_binary_sensor_entities"):
+                self.logger.info("Creating new binary sensor entities for contacts")
+                self.create_binary_sensor_entities(latest_contacts)
+                
+            # Diagnostic sensor entities
+            if hasattr(self, "create_contact_diagnostic_sensors"):
+                self.logger.info("Creating new diagnostic sensor entities for contacts")
+                self.create_contact_diagnostic_sensors(latest_contacts)
+        
+        # Add the method to the class
+        self._create_new_contact_entities = _create_new_contact_entities.__get__(self)
+        
         # Track last update times for different data types
         self._last_info_update = 0  # Combined time for node info and contacts
         self._last_messages_update = 0
@@ -386,42 +404,64 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             result_data: The data dictionary to update
             force_update: Whether to force a contacts update regardless of schedule
         """
-        # Decide whether to update contacts based on schedule or forced update
-        should_update = (
-            force_update or 
-            len(self._contacts) == 0 or 
-            self._update_count % 2 == 0
-        )
-        
-        if should_update:
-            self.logger.info("Fetching contacts list...")
-            try:
-                contacts = await self.api.get_contacts()
+        self.logger.info("Fetching contacts list...")
+        try:
+            contacts = await self.api.get_contacts()
+            
+            if contacts and isinstance(contacts, dict):
+                # Convert contacts dict to list
+                contacts_list = []
+                for name, data in contacts.items():
+                    if isinstance(data, dict):
+                        if "adv_name" not in data:
+                            data["adv_name"] = name
+                        contacts_list.append(data)
                 
-                if contacts and isinstance(contacts, dict):
-                    # Convert contacts dict to list
-                    contacts_list = []
-                    for name, data in contacts.items():
-                        if isinstance(data, dict):
-                            if "adv_name" not in data:
-                                data["adv_name"] = name
-                            contacts_list.append(data)
+                # Check for new contacts
+                if self._contacts:
+                    new_contacts_found = False
+                    for contact in contacts_list:
+                        contact_name = contact.get("adv_name", "")
+                        public_key = contact.get("public_key", "")
+                        
+                        # Skip contacts without identification
+                        if not contact_name and not public_key:
+                            continue
+                            
+                        # Check if this is a new contact
+                        exists = False
+                        for existing in self._contacts:
+                            existing_name = existing.get("adv_name", "")
+                            existing_key = existing.get("public_key", "")
+                            
+                            if (public_key and public_key == existing_key) or \
+                                (contact_name and contact_name == existing_name):
+                                exists = True
+                                break
+                                
+                        if not exists:
+                            self.logger.info(f"New contact discovered: {contact_name or public_key[:10]}")
+                            new_contacts_found = True
                     
-                    # Store the contacts in our result data
-                    self._contacts = contacts_list
-                    result_data["contacts"] = contacts_list
-                    
-                    self.logger.info(f"Retrieved {len(contacts_list)} contacts")
-                else:
-                    self.logger.info("No contacts found or empty response")
-                    result_data["contacts"] = []
-            except Exception as ex:
-                self.logger.error(f"Error getting contacts: {ex}")
-                # Use previously cached contacts if any
-                result_data["contacts"] = self._contacts
-        else:
-            # Use cached contacts when we don't fetch them
+                    # If new contacts were found, trigger entity creation
+                    if new_contacts_found:
+                        # Schedule entity creation on the event loop
+                        self.logger.info("Scheduling creation of entity sensors for new contacts")
+                        self.hass.async_create_task(self._create_new_contact_entities())
+                
+                # Update our contact cache
+                self._contacts = contacts_list
+                result_data["contacts"] = contacts_list
+                
+                self.logger.info(f"Retrieved {len(contacts_list)} contacts")
+            else:
+                self.logger.info("No contacts found or empty response")
+                result_data["contacts"] = []
+        except Exception as ex:
+            self.logger.error(f"Error getting contacts: {ex}")
+            # Use previously cached contacts if any
             result_data["contacts"] = self._contacts
+
         
         return result_data
     
@@ -582,6 +622,17 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             
             # Always update last_update_success_time 
             self.last_update_success_time = current_time
+            
+            # Schedule entity creation for any new contacts
+            if result_data.get("contacts"):
+                # Check for new contacts since the last update
+                if getattr(self, "_last_contacts_processed", None) != result_data["contacts"]:
+                    self.logger.info("Contacts have changed, scheduling entity creation")
+                    # Pass the current contacts list directly to the entity creation function
+                    latest_contacts = result_data["contacts"]
+                    self.hass.async_create_task(self._create_new_contact_entities(latest_contacts))
+                    # Store the processed contacts to avoid duplicate processing
+                    self._last_contacts_processed = result_data["contacts"].copy()
             
             return result_data
             
