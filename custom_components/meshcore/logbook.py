@@ -1,35 +1,25 @@
 """Logbook integration for MeshCore."""
 import logging
+import time
 from typing import Dict, Any, Optional, Callable, Iterable
 from datetime import datetime
 
-from homeassistant.components.logbook import (
-    DOMAIN as LOGBOOK_DOMAIN,
-    EVENT_LOGBOOK_ENTRY,
-)
-from homeassistant.const import ATTR_NAME, ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, callback, Context, Event
+from homeassistant.core import HomeAssistant, callback, Event
 
 from .const import (
     DOMAIN,
     NODE_TYPE_CLIENT,
     NODE_TYPE_REPEATER,
-    PLATFORM_MESSAGE,
     ENTITY_DOMAIN_BINARY_SENSOR,
     ENTITY_DOMAIN_SENSOR,
-    MESSAGES_SUFFIX,
     CONTACT_SUFFIX,
-    CHANNEL_PREFIX,
     DEFAULT_DEVICE_NAME,
 )
 from .utils import (
-    sanitize_name,
-    get_device_name,
-    format_entity_id,
     get_channel_entity_id,
     get_contact_entity_id,
-    extract_channel_idx,
     find_coordinator_with_device_name,
+    sanitize_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,12 +29,20 @@ EVENT_MESHCORE_MESSAGE = "meshcore_message"
 EVENT_MESHCORE_CONTACT = "meshcore_contact"
 EVENT_MESHCORE_CLIENT_MESSAGE = "meshcore_client_message"
 
+# Message types
+MESSAGE_TYPE_DIRECT = "direct"
+MESSAGE_TYPE_CHANNEL = "channel"
+MESSAGE_TYPE_CHATROOM = "chatroom"
+MESSAGE_TYPE_CONTACT = "contact_discovery"
+MESSAGE_TYPE_SYSTEM = "system"
+
 @callback
 def async_describe_events(
     hass: HomeAssistant,
     async_describe_event: Callable[[str, str, Callable[[Event], dict[str, str]]], None],
 ) -> None:
     """Describe logbook events."""
+    
     @callback
     def process_message_event(event: Event) -> dict[str, str]:
         """Process MeshCore message events for logbook."""
@@ -55,30 +53,27 @@ def async_describe_events(
         channel = data.get("channel", "")
         outgoing = data.get("outgoing", False)
         
-        # Determine message description
+        # Format message based on type and direction
         if outgoing:
             receiver = data.get('receiver', 'Unknown')
             pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
-            if pub_key_short:
-                description = f"Sent to {receiver} ({pub_key_short}): {message}"
-            else:
-                description = f"Sent to {receiver}: {message}"
+            description = f"Sent to {receiver}{f' ({pub_key_short})' if pub_key_short else ''}: {message}"
             icon = "mdi:message-arrow-right-outline"
-        elif message_type == "channel" and channel:
-            # For channel messages, we already have sender in the message format
-            description = f"<{channel}> {message}"
+        elif message_type == MESSAGE_TYPE_CHANNEL:
+            # Format as <channel> Sender: Message
+            channel_display = data.get("channel_display", f"<{channel}>")
+            sender_display = data.get("sender_display", sender_name)
+            description = f"{channel_display} {sender_display}: {message}"
             icon = "mdi:message-bulleted"
         else:
             pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
-            if pub_key_short:
-                description = f"{sender_name} ({pub_key_short}): {message}"
-            else:
-                description = f"{sender_name}: {message}"
+            description = message
             icon = "mdi:message-text"
-        
+
+            
         return {
-            "name": sender_name,
-            "message": message,
+            "name": "",
+            "message": description,
             "domain": DOMAIN,
             "icon": icon,
         }
@@ -101,27 +96,27 @@ def async_describe_events(
     def process_client_message_event(event: Event) -> dict[str, str]:
         """Process MeshCore client message events for logbook."""
         data = event.data
-        client_name = data.get("client_name", "Unknown")
         message = data.get("message", "")
+        sender_name = data.get("sender_name", "")
+        receiver_name = data.get("receiver_name", "")
         is_incoming = data.get("is_incoming", True)
         
-        pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
         if is_incoming:
-            if pub_key_short:
-                description = f"{client_name} ({pub_key_short}): {message}"
-            else:
-                description = f"{client_name}: {message}"
+            # For incoming messages, use sender's name as the display name
+            name = f"{sender_name if sender_name else 'Unknown Sender'}:"
+            # Just show the message content without repeating the name
+            description = message
             icon = "mdi:message-text"
         else:
-            if pub_key_short:
-                description = f"Sent to {client_name} ({pub_key_short}): {message}"
-            else:
-                description = f"Sent to {client_name}: {message}"
+            # For outgoing messages, use receiver's name as the display name
+            name = receiver_name if receiver_name else "Unknown Receiver"
+            # Format as "To Receiver: Message" for outgoing DMs
+            description = f"To {name}: {message}"
             icon = "mdi:message-arrow-right-outline"
         
         return {
-            "name": client_name,
-            "message": message,
+            "name": name,
+            "message": description,
             "domain": DOMAIN,
             "icon": icon,
         }
@@ -130,228 +125,253 @@ def async_describe_events(
     async_describe_event(DOMAIN, EVENT_MESHCORE_CONTACT, process_contact_event)
     async_describe_event(DOMAIN, EVENT_MESHCORE_CLIENT_MESSAGE, process_client_message_event)
 
-def log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> None:
-    """Record message history using Home Assistant events."""
+def normalize_message_data(message_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize message data to a standard format."""
     if not message_data:
-        return
-        
-    # Find the coordinator and get the device name
-    coordinator, device_name = find_coordinator_with_device_name(hass.data)
-        
-    # Extract message data
-    message_text = message_data.get("text", message_data.get("msg", ""))  # Try both text and msg fields
-    sender_key = message_data.get("pubkey_prefix", message_data.get("sender", ""))  # Try both formats
-    sender_name = "Unknown"
-    receiver_name = message_data.get("receiver", "Unknown")
-    channel = message_data.get("channel_idx", message_data.get("channel", ""))  # Try both formats
-    message_type = "direct"  # Default to direct message
-    outgoing = message_data.get("outgoing", False)
-    contact_public_key = None
+        return {}
     
-    # Use message type if it's already specified
+    # Extract core message fields, handling different field names
+    normalized = {
+        "text": message_data.get("text", message_data.get("msg", "")),
+        "sender_key": message_data.get("pubkey_prefix"),
+        "sender_name": message_data.get("sender_name", ""),
+        "receiver_name": message_data.get("receiver", ""),
+        "channel": message_data.get("channel", ""),
+        "channel_idx": message_data.get("channel_idx"),
+        "outgoing": message_data.get("outgoing", False),
+        "snr": message_data.get("snr"),
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    # Determine message type based on input data
+    message_type = MESSAGE_TYPE_DIRECT
+    
+    # Log input data for debugging channel messages
+    _LOGGER.info(f"Message data for type check: type={message_data.get('type')}, channel={message_data.get('channel')} or {message_data.get('channel_idx')}")
+    
     if "type" in message_data:
-        message_type = message_data["type"]
+        if message_data["type"] in ["CHAN", "channel"]:
+            message_type = MESSAGE_TYPE_CHANNEL
+        elif message_data["type"] in ["PRIV", "direct"]:
+            message_type = MESSAGE_TYPE_DIRECT
+        elif message_data["type"] == "chatroom":
+            message_type = MESSAGE_TYPE_CHATROOM
+    elif normalized["channel"]:
+        message_type = MESSAGE_TYPE_CHANNEL
+        
+    normalized["message_type"] = message_type
+    _LOGGER.info(f"Final message type: {message_type}, channel value: {normalized['channel']}")
     
-    # Find coordinator and get contact data
+    return normalized
+
+def resolve_sender_info(hass: HomeAssistant, message: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve sender information from contacts list."""
+    # Find coordinator with contacts data
     coordinator = None
     for entry_id, coord in hass.data[DOMAIN].items():
         if hasattr(coord, "data") and "contacts" in coord.data:
             coordinator = coord
             break
     
-    # Process sender/receiver information
-    if coordinator:
-        contacts = coordinator.data.get("contacts", [])
-        
-        # For incoming messages, look up the sender
-        if not outgoing and sender_key:
-            for contact in contacts:
-                if not isinstance(contact, dict):
-                    continue
-                    
-                # Check if this contact is the sender
-                if isinstance(sender_key, (bytes, bytearray)) and contact.get("public_key", "").startswith(sender_key.hex()):
-                    sender_name = contact.get("adv_name", "Unknown")
-                    contact_public_key = contact.get("public_key")
-                    break
-                elif isinstance(sender_key, str) and contact.get("public_key", "").startswith(sender_key):
-                    sender_name = contact.get("adv_name", "Unknown")
-                    contact_public_key = contact.get("public_key")
-                    break
-        
-        # For outgoing messages, look up the receiver
-        elif outgoing and isinstance(receiver_name, str):
-            for contact in contacts:
-                if not isinstance(contact, dict):
-                    continue
+    if not coordinator:
+        return message
+    
+    contacts = coordinator.data.get("contacts", [])
+    sender_key = message["sender_key"]
+    outgoing = message["outgoing"]
+    receiver_name = message["receiver_name"]
+    
+    # For incoming messages, look up the sender
+    if not outgoing and sender_key:
+        for contact in contacts:
+            if not isinstance(contact, dict):
+                continue
                 
-                # Check if contact name matches receiver
-                if contact.get("adv_name") == receiver_name:
-                    contact_public_key = contact.get("public_key")
-                    break
-                
-    # Determine message type if not already set from input
-    if message_type != "CHAN" and channel:
-        message_type = "channel"
-    elif message_type == "CHAN":
-        message_type = "channel"
-        
-    # Try to extract sender name from channel message if it matches pattern: "Name: message"
-    if message_type == "channel" and message_text and ":" in message_text:
-        parts = message_text.split(":", 1)
+            # Check if this contact is the sender
+            if isinstance(sender_key, (bytes, bytearray)) and contact.get("public_key", "").startswith(sender_key.hex()):
+                message["sender_name"] = contact.get("adv_name", "Unknown")
+                message["contact_public_key"] = contact.get("public_key")
+                break
+            elif isinstance(sender_key, str) and contact.get("public_key", "").startswith(sender_key):
+                message["sender_name"] = contact.get("adv_name", "Unknown")
+                message["contact_public_key"] = contact.get("public_key")
+                break
+    
+    # For outgoing messages, look up the receiver
+    elif outgoing and isinstance(receiver_name, str):
+        for contact in contacts:
+            if not isinstance(contact, dict):
+                continue
+            
+            if contact.get("adv_name") == receiver_name:
+                message["contact_public_key"] = contact.get("public_key")
+                break
+    
+    # Extract sender name from channel message if applicable
+    if message["message_type"] == MESSAGE_TYPE_CHANNEL and message["text"] and ":" in message["text"]:
+        parts = message["text"].split(":", 1)
         if len(parts) == 2 and parts[0].strip() and parts[1].strip():
             extracted_sender = parts[0].strip()
             extracted_message = parts[1].strip()
-            # Only update sender if we don't already have one
-            if sender_name == "Unknown":
-                sender_name = extracted_sender
-                _LOGGER.debug(f"Extracted sender name '{sender_name}' from channel message")
-            # Update the message text to show without the sender prefix
-            message_text = extracted_message
+            # Always update sender for channel messages
+            message["sender_name"] = extracted_sender
+            _LOGGER.debug(f"Extracted sender name '{message['sender_name']}' from channel message")
+            # Store both the original message and the extracted message
+            message["original_text"] = message["text"]
+            message["text"] = extracted_message
+            message["extracted_sender"] = extracted_sender
     
-    # First, log to the standard message event
-    if outgoing:
-        event_type = "send_message"
-        event_name = f"Sent message to {receiver_name}"
-    elif message_type == "channel" or message_type == "CHAN":
-        event_type = "channel_message"
-        channel_id = channel if channel else 0  # Default to channel 0 if not specified
-        event_name = f"Channel {channel_id} message"
-    else:
-        event_type = "receive_message"
-        event_name = f"Message from {sender_name}"
-        
+    # Set client_name based on direction
+    message["client_name"] = message["sender_name"] if not outgoing else message["receiver_name"]
     
-    # Then, log to client-specific event if this is a direct message (not a channel message)
-    # and we have client info
-    if (message_type != "channel" and message_type != "CHAN") and (sender_name != "Unknown" or receiver_name != "Unknown"):
-        client_name = sender_name if not outgoing else receiver_name
-        
-        # Format message with contact public key prefix
-        formatted_message = f"<{contact_public_key[:4]}> {message_text}"
+    return message
 
-        # Create client message event data
-        client_event_data = {
-            "client_name": client_name,
-            "message": formatted_message,
-            "text": formatted_message,  # Add text field to ensure compatibility
-            "is_incoming": not outgoing,
-            "entity_id": get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, client_name),  # Use utility function
-            "domain": DOMAIN,
-            "client_public_key": contact_public_key,
-            "timestamp": datetime.now().isoformat(),
-            "message_type": "direct",  # Explicitly mark as direct message
-            "name": client_name,  # Add name for consistency
-        }
-        
-        # Add the channel information if it's a channel message
-        if message_type == "channel" and channel:
-            client_event_data["channel"] = channel
-            client_event_data["channel_idx"] = channel
-        
-        # Fire client-specific message event
-        hass.bus.async_fire(EVENT_MESHCORE_CLIENT_MESSAGE, client_event_data)
-    
-    # Store message in coordinator for message tracking
-    if coordinator and hasattr(coordinator, "_message_history"):
-        # Create history entry
-        history_entry = {
-            "text": message_text,
-            "message": message_text,  # Add for compatibility
-            "sender": sender_name,
-            "receiver": receiver_name,
-            "type": message_type,
-            "message_type": message_type,  # Add for compatibility
-            "channel": channel,
-            "channel_idx": channel if channel else None,  # Add for compatibility
-            "outgoing": outgoing,
-            "timestamp": datetime.now().isoformat(),
-            "pubkey_prefix": sender_key,  # Add the sender key for reference
-        }
-        
-        # Add to global history
-        coordinator._message_history.append(history_entry)
-        
-        # Keep only the last MAX_MESSAGES_HISTORY messages
-        from .const import MAX_MESSAGES_HISTORY
-        if len(coordinator._message_history) > MAX_MESSAGES_HISTORY:
-            coordinator._message_history = coordinator._message_history[-MAX_MESSAGES_HISTORY:]
-        
-        # For channel messages, store in channel history
-        if (message_type == "channel" or message_type == "CHAN") and channel is not None:
-            channel_idx = int(channel) if isinstance(channel, (int, str)) and str(channel).isdigit() else 0
+def update_coordinator_data(hass: HomeAssistant) -> None:
+    """Update coordinator data with the most recent message info."""
+    # Get coordinator without storing messages in history
+    coordinator = None
+    for _, coord in hass.data[DOMAIN].items():
+        if hasattr(coord, "data"):
+            coordinator = coord
+            break
             
-            # Initialize channel history dict if needed
-            if not hasattr(coordinator, "_channel_message_history"):
-                coordinator._channel_message_history = {}
-                
-            # Initialize this channel's history if needed
-            if channel_idx not in coordinator._channel_message_history:
-                coordinator._channel_message_history[channel_idx] = []
-                
-            # Add to channel's history
-            coordinator._channel_message_history[channel_idx].append(history_entry)
-            
-            # Keep only the latest messages
-            if len(coordinator._channel_message_history[channel_idx]) > MAX_MESSAGES_HISTORY:
-                coordinator._channel_message_history[channel_idx] = coordinator._channel_message_history[channel_idx][-MAX_MESSAGES_HISTORY:]
-            
-            # Create entity ID for logbook using utility function
-            entity_id = get_channel_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, channel_idx)
-            
-            # Add channel-specific info to the event data
-            # Format message with channel index
-            formatted_message = f"<{channel_idx}> {message_text}"
-            
-            channel_event_data = {
-                "name": sender_name if sender_name != "Unknown" else f"Channel {channel_idx}",
-                "message": formatted_message,
-                "text": message_text,
-                "sender": sender_name,
-                "sender_name": sender_name,  # Add sender_name for consistency
-                "entity_id": entity_id,
-                "channel_idx": channel_idx,
-                "timestamp": datetime.now().isoformat(),
-                "domain": DOMAIN,
-                "message_type": "channel",  # Explicitly mark as channel message
-            }
-            
-            # Fire channel-specific event for logbook
-            hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, channel_event_data)
-        
-        # For direct messages only (not channel messages), store in client history
-        elif (message_type != "channel" and message_type != "CHAN") and client_name != "Unknown":
-            # Initialize client history dict if needed
-            if not hasattr(coordinator, "_client_message_history"):
-                coordinator._client_message_history = {}
-                
-            # Initialize this client's history if needed
-            if client_name not in coordinator._client_message_history:
-                coordinator._client_message_history[client_name] = []
-                
-            # Add to client's history
-            coordinator._client_message_history[client_name].append(history_entry)
-            
-            # Keep only the last MAX_MESSAGES_HISTORY messages per client
-            if len(coordinator._client_message_history[client_name]) > MAX_MESSAGES_HISTORY:
-                coordinator._client_message_history[client_name] = coordinator._client_message_history[client_name][-MAX_MESSAGES_HISTORY:]
-        
-        # Trigger coordinator update to refresh sensors
+    if coordinator:
+        # Simply trigger coordinator update to refresh states
         coordinator.async_set_updated_data(coordinator.data)
+
+def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> None:
+    """Record message using Home Assistant events."""
+    if not message_data:
+        return
+    
+    # Find the coordinator and get the device name
+    _, device_name = find_coordinator_with_device_name(hass.data)
+    
+    # Process message through the pipeline
+    message = normalize_message_data(message_data)
+    message = resolve_sender_info(hass, message)
+    
+    # Prepare core event data
+    event_data = {
+        "message": message["text"],
+        "text": message["text"],
+        "timestamp": message["timestamp"],
+        "domain": DOMAIN,
+        "message_type": message["message_type"],
+        "outgoing": message["outgoing"],
+    }
+    
+    # Only include fields that have values
+    if message.get("sender_name"):
+        event_data["sender_name"] = message["sender_name"]
+    
+    if message.get("receiver_name"):
+        event_data["receiver_name"] = message["receiver_name"]
+        
+    if message.get("client_name"):
+        event_data["client_name"] = message["client_name"]
+        event_data["name"] = message["client_name"]
+    
+    # Add SNR if available
+    if message.get("snr") is not None:
+        event_data["snr"] = message["snr"]
+    
+    # Add client-specific fields
+    if message.get("contact_public_key"):
+        event_data["client_public_key"] = message["contact_public_key"]
+    elif message.get("sender_key"):
+        event_data["client_public_key"] = message["sender_key"]
+    
+    # Handle channel-specific messages
+    # Check for channel_idx directly since that's what's in the data
+    if message["message_type"] == MESSAGE_TYPE_CHANNEL:
+        channel_idx = int(message.get("channel_idx", 0))
+        event_data["channel_idx"] = channel_idx
+        event_data["channel"] = f"{channel_idx}"
+        # todo determine this from channel list
+        if channel_idx == 0:
+            event_data["channel"] = "public"
+
+        # Get the correct entity_id for this channel
+        entity_id = get_channel_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, channel_idx)
+        event_data["entity_id"] = entity_id
+        
+        # Just store the plain message text
+        event_data["message"] = message["text"]
+        # Store channel info separately
+        event_data["channel_display"] = f"<{event_data["channel"]}>"
+        event_data["sender_display"] = message.get("sender_name", "")
+        
+        # Debug log the channel event details
+        _LOGGER.info(f"Firing channel message event with entity_id: {entity_id}, channel: {event_data["channel"]}")
+        
+        # Fire channel message event
+        hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, event_data)
+    
+    # Handle direct messages
+    elif message["message_type"] == MESSAGE_TYPE_DIRECT:
+        if message["client_name"] != "Unknown":
+            # Get sanitized client name
+            client_name = sanitize_name(message["client_name"])
+            pub_key = message["sender_key"]
+            # Add client-specific entity ID
+            entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pub_key)
+            event_data["entity_id"] = entity_id
+            
+            # Add is_incoming flag for client messages
+            event_data["is_incoming"] = not message["outgoing"]
+            
+            # Debug log the direct message event details  
+            _LOGGER.info(f"Firing direct message event with entity_id: {entity_id}, client: {client_name}")
+            
+            # Fire direct message event
+            hass.bus.async_fire(EVENT_MESHCORE_CLIENT_MESSAGE, event_data)
+    
+    # Update the message timestamps in the coordinator
+    try:
+        # Find coordinator
+        coordinator = None
+        for entry_id, coord in hass.data[DOMAIN].items():
+            if hasattr(coord, "data"):
+                coordinator = coord
+                break
+                
+        if coordinator:
+            # Initialize message timestamps if it doesn't exist
+            if not hasattr(coordinator, "message_timestamps"):
+                coordinator.message_timestamps = {}
+                
+            current_time = time.time()
+            
+            # Determine key based on message type
+            key = None
+            if message["message_type"] == MESSAGE_TYPE_CHANNEL:
+                key = int(message.get("channel_idx", 0))
+            elif message["message_type"] == MESSAGE_TYPE_DIRECT:
+                key = message["contact_public_key"]
+            
+            # Update timestamp if we have a valid key
+            if key is not None:
+                coordinator.message_timestamps[key] = current_time
+    except Exception as ex:
+        _LOGGER.error(f"Error updating message timestamps: {ex}")
+    
+    # Update coordinator data (without storing history)
+    update_coordinator_data(hass)
     
     # Log for debugging
-    if outgoing:
-        _LOGGER.debug("Logged outgoing message: %s to %s", 
-            message_text, receiver_name)
+    if message["outgoing"]:
+        _LOGGER.debug("Logged outgoing %s message: %s to %s", 
+            message["message_type"], message["text"], message["receiver_name"])
     else:
-        _LOGGER.debug("Logged incoming message: %s from %s", 
-            message_text, sender_name)
+        _LOGGER.debug("Logged incoming %s message: %s from %s", 
+            message["message_type"], message["text"], message["sender_name"])
 
 def log_contact_seen(hass: HomeAssistant, contact_data: Dict[str, Any]) -> None:
     """Record contact discovery using Home Assistant events."""
     if not contact_data:
         return
-        
+    
     contact_name = contact_data.get("adv_name", "Unknown")
     node_type = contact_data.get("type")
     public_key = contact_data.get("public_key", "")
@@ -360,74 +380,39 @@ def log_contact_seen(hass: HomeAssistant, contact_data: Dict[str, Any]) -> None:
     contact_type = "Client" if node_type == NODE_TYPE_CLIENT else "Repeater" if node_type == NODE_TYPE_REPEATER else "Node"
     
     # Create event data for logbook
-    event_data = {
+    contact_event_data = {
         "contact_name": contact_name,
         "contact_type": contact_type,
         "public_key": public_key,
         "node_type": node_type,
-        "entity_id": get_contact_entity_id(ENTITY_DOMAIN_SENSOR, DEFAULT_DEVICE_NAME, contact_name, CONTACT_SUFFIX),
+        "entity_id": get_contact_entity_id(ENTITY_DOMAIN_SENSOR, DEFAULT_DEVICE_NAME, public_key, CONTACT_SUFFIX),
         "domain": DOMAIN,
     }
     
     # Fire Home Assistant event for history/logbook
-    hass.bus.async_fire(EVENT_MESHCORE_CONTACT, event_data)
+    hass.bus.async_fire(EVENT_MESHCORE_CONTACT, contact_event_data)
     
-    # Create a client message for this contact - initial message
+    # Create standard message for contact discovery
+    discovery_text = f"New {contact_type.lower()} device discovered"
+    
+    # Create client event data
     client_event_data = {
         "client_name": contact_name,
-        "message": f"New {contact_type.lower()} device discovered",
-        "is_incoming": False,  # System message
-        "entity_id": get_contact_entity_id(ENTITY_DOMAIN_SENSOR, DEFAULT_DEVICE_NAME, contact_name, "message"),  # Use utility function
+        "message": discovery_text,
+        "text": discovery_text,
+        "is_incoming": False,
+        "entity_id": get_contact_entity_id(ENTITY_DOMAIN_SENSOR, DEFAULT_DEVICE_NAME, contact_name, "message"),
         "domain": DOMAIN,
         "client_public_key": public_key,
         "timestamp": datetime.now().isoformat(),
+        "message_type": MESSAGE_TYPE_CONTACT,
     }
     
-    # Fire client-specific event
+    # Fire client message event
     hass.bus.async_fire(EVENT_MESHCORE_CLIENT_MESSAGE, client_event_data)
     
-    # Find the coordinator
-    coordinator = None
-    for entry_id, coord in hass.data[DOMAIN].items():
-        if hasattr(coord, "data"):
-            coordinator = coord
-            break
-            
-    # Store in coordinator message history
-    if coordinator:
-        # Create history entry for global tracking
-        history_entry = {
-            "text": f"New {contact_type.lower()} discovered: {contact_name}",
-            "sender": "system",
-            "type": "contact_discovery",
-            "contact_name": contact_name,
-            "contact_type": contact_type,
-            "timestamp": datetime.now().isoformat(),
-        }
-        
-        # Add to global history if exists
-        if hasattr(coordinator, "_message_history"):
-            coordinator._message_history.append(history_entry)
-            
-            # Keep only last 50 messages
-            if len(coordinator._message_history) > 50:
-                coordinator._message_history = coordinator._message_history[-50:]
-        
-        # Add to client-specific history
-        if contact_name != "Unknown":
-            # Initialize client history dict if needed
-            if not hasattr(coordinator, "_client_message_history"):
-                coordinator._client_message_history = {}
-                
-            # Initialize this client's history
-            if contact_name not in coordinator._client_message_history:
-                coordinator._client_message_history[contact_name] = []
-            
-            # Add discovery message to client history
-            coordinator._client_message_history[contact_name].append(history_entry)
-            
-        # Trigger update to refresh UI
-        coordinator.async_set_updated_data(coordinator.data)
+    # Update coordinator data
+    update_coordinator_data(hass)
     
     # Log for debugging
     _LOGGER.info(

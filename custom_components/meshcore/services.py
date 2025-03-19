@@ -4,7 +4,6 @@ import time
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
@@ -13,7 +12,7 @@ from .const import (
     ATTR_NODE_ID,
     ATTR_MESSAGE,
 )
-from .logbook import log_message, EVENT_MESHCORE_MESSAGE
+from .logbook import handle_log_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,7 +55,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                             "timestamp": int(time.time()),
                             "outgoing": True,
                         }
-                        log_message(hass, outgoing_msg)
+                        handle_log_message(hass, outgoing_msg)
                     else:
                         _LOGGER.warning(
                             "Failed to send message to node %s", node_id

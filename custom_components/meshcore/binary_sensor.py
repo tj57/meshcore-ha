@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -25,12 +26,17 @@ from .utils import (
     sanitize_name,
     get_device_name,
     format_entity_id,
-    get_channel_entity_id,
-    get_contact_entity_id,
     extract_channel_idx,
+)
+from .logbook import (
+    EVENT_MESHCORE_MESSAGE,
+    EVENT_MESHCORE_CLIENT_MESSAGE,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How far back to check for messages (2 weeks, matching activity window)
+MESSAGE_ACTIVITY_WINDOW = timedelta(days=14)
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -70,17 +76,16 @@ async def async_setup_entry(
                 
             contact_name = contact.get("adv_name", "")
             public_key = contact.get("public_key", "")
-            
+            public_key_prefix = public_key[:12] if public_key else ""
             # Skip if we already have an entity for this contact
             contact_id = public_key or contact_name
             if contact_id in coordinator.tracked_contacts:
                 continue
                 
             if contact_name:
-                safe_name = sanitize_name(contact_name)
                 _LOGGER.info(f"Creating message entity for contact: {contact_name}")
                 new_entity = MeshCoreMessageEntity(
-                    coordinator, safe_name, f"{contact_name} Messages", 
+                    coordinator, public_key_prefix, f"{contact_name} Messages", 
                     public_key=public_key
                 )
                 entities.append(new_entity)
@@ -155,35 +160,45 @@ class MeshCoreMessageEntity(CoordinatorEntity, BinarySensorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
         )
+        
+        
+    def _check_message_activity(self) -> bool:
+        """Check for recent message activity using coordinator timestamp data."""
+        # If message_timestamps doesn't exist, initialize it
+        if not hasattr(self.coordinator, "message_timestamps"):
+            self.coordinator.message_timestamps = {}
+            return False
+        
+        # Calculate cutoff time for activity window
+        cutoff_time = time.time() - MESSAGE_ACTIVITY_WINDOW.total_seconds()
+        
+        # Determine key to check
+        key = None
+        if self.entity_key.startswith(CHANNEL_PREFIX):
+            key = extract_channel_idx(self.entity_key)
+        elif self.public_key:
+            key = self.public_key
+        
+        # Check if we have recent messages
+        if key is not None and key in self.coordinator.message_timestamps:
+            return self.coordinator.message_timestamps[key] > cutoff_time
+        
+        return False
     
     @property
     def is_on(self) -> bool:
-        """Return true if there are unread messages."""
-        if self.entity_key.startswith(CHANNEL_PREFIX):
-            # For channel messages
-            if hasattr(self.coordinator, "_channel_message_history"):
-                try:
-                    # Extract channel index from entity_key
-                    channel_idx = extract_channel_idx(self.entity_key)
-                    
-                    # Check if this channel has messages
-                    if channel_idx in self.coordinator._channel_message_history:
-                        return len(self.coordinator._channel_message_history[channel_idx]) > 0
-                except Exception as ex:
-                    _LOGGER.warning(f"Error checking channel messages: {ex}")
-        else:
-            # For contact-specific messages
-            if hasattr(self.coordinator, "_client_message_history"):
-                # Find messages for this contact
-                # The entity_key is the safe version of the contact name
-                # We need to find the original contact name
-                for contact_name, msgs in self.coordinator._client_message_history.items():
-                    safe_name = sanitize_name(contact_name)
-                    if safe_name == self.entity_key or contact_name == self.entity_key:
-                        return len(msgs) > 0
+        """Return true if there are recent messages in the activity window."""
+        # Use our helper method to check message activity
+        # This ensures we always get the latest state
+        return self._check_message_activity()
+    
+    async def async_update(self) -> None:
+        """Update message status."""
+        await super().async_update()
         
-        # Default if no messages found
-        return False
+        # We no longer need to do anything here since is_on
+        # directly checks for message activity when called
+
     
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -192,36 +207,27 @@ class MeshCoreMessageEntity(CoordinatorEntity, BinarySensorEntity):
             "last_updated": datetime.now().isoformat()
         }
         
+        # Add appropriate attributes based on entity type
         if self.entity_key.startswith(CHANNEL_PREFIX):
             # For channel-specific message entities
             try:
-                # Extract channel index from entity_key
                 channel_idx = extract_channel_idx(self.entity_key)
-                
-                # Add channel info to attributes
                 attributes["channel_index"] = channel_idx
-                
-                # Add message count only
-                if hasattr(self.coordinator, "_channel_message_history") and channel_idx in self.coordinator._channel_message_history:
-                    attributes["message_count"] = len(self.coordinator._channel_message_history[channel_idx])
-                else:
-                    attributes["message_count"] = 0
-                
             except (ValueError, TypeError):
                 _LOGGER.warning(f"Could not get channel index from {self.entity_key}")
-                
-        else:
+        elif self.public_key:
             # For contact-specific message entities
-            message_count = 0
-            if hasattr(self.coordinator, "_client_message_history"):
-                # Find this contact's messages
-                for contact_name, msgs in self.coordinator._client_message_history.items():
-                    safe_name = sanitize_name(contact_name)
-                    if safe_name == self.entity_key or contact_name == self.entity_key:
-                        message_count = len(msgs)
-                        break
-            
-            attributes["message_count"] = message_count
             attributes["public_key"] = self.public_key
+            
+        # Add timestamp of last message if available
+        key = None
+        if self.entity_key.startswith(CHANNEL_PREFIX):
+            key = extract_channel_idx(self.entity_key)
+        elif self.public_key:
+            key = self.public_key
+            
+        if key is not None and hasattr(self.coordinator, "message_timestamps") and key in self.coordinator.message_timestamps:
+            timestamp = self.coordinator.message_timestamps[key]
+            attributes["last_message"] = datetime.fromtimestamp(timestamp).isoformat()
             
         return attributes

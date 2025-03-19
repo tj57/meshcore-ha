@@ -50,8 +50,7 @@ class SerialConnection:
 
         def connection_made(self, transport):
             self.cx.transport = transport
-#            printerr('port opened')
-            transport.serial.rts = False  # You can manipulate Serial object via transport
+            transport.serial.rts = False  # type: ignore # You can manipulate Serial object via transport
     
         def data_received(self, data):
 #            printerr('data received')
@@ -117,8 +116,7 @@ class SerialConnection:
     async def send(self, data):
         size = len(data)
         pkt = b"\x3c" + size.to_bytes(2, byteorder="little") + data
-#        printerr(f"sending pkt : {pkt}")
-        self.transport.write(pkt)
+        self.transport.write(pkt) # type: ignore
 
 class TCPConnection:
     def __init__(self, host, port):
@@ -148,7 +146,7 @@ class TCPConnection:
         """
         loop = asyncio.get_running_loop()
         await loop.create_connection(
-                lambda: self.MCClientProtocol(self), 
+                lambda: self.MCClientProtocol(self),  # type: ignore
                 self.host, self.port)
 
         printerr("TCP Connexion started")
@@ -215,6 +213,9 @@ class TCPConnection:
                 cur_data = cur_data[1:]  # Skip one byte and try again
 
     async def send(self, data):
+        if self.transport is None:
+            printerr("TCP client is not connected, cannot send data")
+            return
         size = len(data)
         pkt = b"\x3c" + size.to_bytes(2, byteorder="little") + data
         self.transport.write(pkt)
@@ -286,6 +287,9 @@ class BLEConnection:
                 printerr(f"Error handling BLE data: {ex}")
 
     async def send(self, data):
+        if self.client is None:
+            printerr("BLE client is not connected, cannot send data")
+            return
         await self.client.write_gatt_char(self.rx_char, bytes(data), response=False)
 
 class MeshCore:
@@ -443,6 +447,33 @@ class MeshCore:
                 firmware_version = data[60:80].decode().replace("\0", "")
                 res["firmware_version"] = firmware_version
                 self.log_debug(f"Firmware version: {firmware_version}, Build date: {firmware_build_date}")
+                self.result.set_result(res)
+            case 16: # contact msg recv v3
+                res = {}
+                res["type"] = "PRIV"
+                res["snr"] = data[1] / 4  # SNR value divided by 4
+                # Skip reserved1 and reserved2 at positions 2 and 3
+                # The next 6 bytes are the public key prefix
+                res["pubkey_prefix"] = data[4:10].hex()
+                res["path_len"] = data[10]
+                res["txt_type"] = data[11]
+                res["sender_timestamp"] = int.from_bytes(data[12:16], byteorder='little')
+                if data[11] == 2 : # signed packet (txt_type == 2)
+                    res["signature"] = data[16:20].hex()
+                    res["text"] = data[20:].decode()
+                else :
+                    res["text"] = data[16:].decode()
+                self.result.set_result(res)
+            case 17 : # chanel msg recv v3
+                res = {}
+                res["type"] = "CHAN"
+                res["snr"] = data[1] / 4  # SNR value divided by 4
+                # Skip reserved1 and reserved2 at positions 2 and 3
+                res["channel_idx"] = data[4]  # Channel index is now at position 4
+                res["path_len"] = data[5]
+                res["txt_type"] = data[6]
+                res["sender_timestamp"] = int.from_bytes(data[7:11], byteorder='little')
+                res["text"] = data[11:].decode()
                 self.result.set_result(res)
             # push notifications
             case 0x80:
