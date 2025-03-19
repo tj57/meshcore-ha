@@ -1,11 +1,10 @@
 """The MeshCore integration."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from datetime import timedelta, datetime
-from typing import Any, Dict, List, Optional
+from datetime import timedelta
+from typing import Any, Dict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -22,14 +21,8 @@ from .const import (
     CONF_TCP_HOST,
     CONF_TCP_PORT,
     CONF_BAUDRATE,
-    CONF_SCAN_INTERVAL,
-    DEFAULT_SCAN_INTERVAL,
-    MAX_MESSAGES_HISTORY,
-    PLATFORM_MESSAGE,
+
     CONF_REPEATER_SUBSCRIPTIONS,
-    CONF_REPEATER_NAME,
-    CONF_REPEATER_PASSWORD,
-    CONF_REPEATER_UPDATE_INTERVAL,
     DEFAULT_REPEATER_UPDATE_INTERVAL,
     CONF_INFO_INTERVAL,
     CONF_MESSAGES_INTERVAL,
@@ -38,7 +31,7 @@ from .const import (
 )
 from .meshcore_api import MeshCoreAPI
 from .services import async_setup_services, async_unload_services
-from .logbook import log_message, log_contact_seen
+from .logbook import handle_log_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -156,9 +149,10 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self.data: Dict[str, Any] = {}
         self._current_node_info = {}
         self._contacts = []
-        self._messages = []
-        self._message_history = []
-        self._client_message_history = {}
+        
+        # Single map to track all message timestamps (key -> timestamp)
+        # Keys can be channel indices (int) or public key prefixes (str)
+        self.message_timestamps = {}
         
         # Repeater subscription tracking
         self._repeater_stats = {}
@@ -440,7 +434,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                                 break
                                 
                         if not exists:
-                            self.logger.info(f"New contact discovered: {contact_name or public_key[:10]}")
+                            self.logger.info(f"New contact discovered: {contact_name or public_key[:12]}")
                             new_contacts_found = True
                     
                     # If new contacts were found, trigger entity creation
@@ -465,8 +459,8 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         
         return result_data
     
-    async def _fetch_messages(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Fetch and process new messages from the device."""
+    async def _fetch_messages(self, result_data: Dict[str, Any]) -> None:
+        """Fetch and process new messages from the device, logging them to the logbook."""
         self.logger.info("Checking for new messages...")
         try:
             new_messages = await self.api.get_new_messages()
@@ -496,22 +490,12 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                     if "timestamp" not in msg:
                         msg["timestamp"] = int(time.time())
                     
-                    # Add to our message history
-                    self._messages.append(msg)
+                    # Log message to Home Assistant logbook
+                    try:
+                        handle_log_message(self.hass, msg)
+                    except Exception as log_ex:
+                        self.logger.error(f"Error logging message to logbook: {log_ex}")
                 
-                # Keep only the latest MAX_MESSAGES_HISTORY messages
-                if len(self._messages) > MAX_MESSAGES_HISTORY:
-                    self._messages = self._messages[-MAX_MESSAGES_HISTORY:]
-                
-                # Update result data with messages
-                result_data["messages"] = self._messages
-                
-                # Log to Home Assistant logbook
-                try:
-                    for msg in new_messages:
-                        log_message(self.hass, msg)
-                except Exception as log_ex:
-                    self.logger.error(f"Error logging message to logbook: {log_ex}")
             else:
                 # No new messages found
                 if new_messages is None or not isinstance(new_messages, list):
@@ -519,14 +503,10 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     self.logger.debug("No new messages found")
                 
-                # Keep existing messages
-                result_data["messages"] = self._messages
+                # No new messages to process
         except Exception as ex:
             self.logger.error(f"Error checking messages: {ex}")
-            # Keep existing messages
-            result_data["messages"] = self._messages
-        
-        return result_data
+            # Error fetching messages, but continue
     
     async def _async_update_data(self) -> Dict[str, Any]:
         """Update data from the MeshCore node.
@@ -540,8 +520,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         # Initialize result with previous data
         result_data = dict(self.data) if self.data else {
             "name": "MeshCore Node", 
-            "contacts": [],
-            "messages": []
+            "contacts": []
         }
         
         # Track update count for debugging
@@ -555,15 +534,9 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         # Current time for interval calculations
         current_time = time.time()
         
-        # Initialize data structures if needed
+        # Initialize contacts list if needed
         if not hasattr(self, "_contacts"):
             self._contacts = []
-        if not hasattr(self, "_messages"):
-            self._messages = []
-        if not hasattr(self, "_client_message_history"):
-            self._client_message_history = {}
-        if not hasattr(self, "_channel_message_history"):
-            self._channel_message_history = {}
         
         try:
             # Reconnect if needed
@@ -580,7 +553,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                 self.logger.info("First update - fetching all data types")
                 result_data = await self._fetch_node_info(result_data)
                 result_data = await self._fetch_contacts(result_data, force_update=True)
-                result_data = await self._fetch_messages(result_data)
+                await self._fetch_messages(result_data)
                 result_data = await self._fetch_repeater_stats(result_data)
                 
                 # Set initial update times
@@ -600,7 +573,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                 # 1. Always check for messages (base update interval)
                 time_since_messages = current_time - self._last_messages_update
                 self.logger.debug(f"Time since last messages update: {time_since_messages:.1f}s (interval: {self._messages_interval}s)")
-                result_data = await self._fetch_messages(result_data)
+                await self._fetch_messages(result_data)
                 self._last_messages_update = current_time
                 
                 # 2. Check node info and contacts if interval has passed
@@ -646,6 +619,5 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             # Minimal fallback data
             return {
                 "name": "MeshCore Node",
-                "contacts": self._contacts,
-                "messages": self._messages
+                "contacts": self._contacts
             }

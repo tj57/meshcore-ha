@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -28,15 +28,10 @@ from .const import (
     NODE_TYPE_CLIENT,
     NODE_TYPE_REPEATER,
     ENTITY_DOMAIN_SENSOR,
-    DEFAULT_DEVICE_NAME,
     CONF_REPEATER_SUBSCRIPTIONS,
-    CONF_REPEATER_NAME,
-    CONF_REPEATER_PASSWORD,
-    CONF_REPEATER_UPDATE_INTERVAL,
 )
 from .utils import (
     sanitize_name,
-    get_device_name,
     format_entity_id,
 )
 
@@ -308,10 +303,6 @@ async def async_setup_entry(
                     
                 # Track this contact
                 coordinator.tracked_diagnostic_contacts.add(public_key)
-                    
-                # Create a unique ID for this contact
-                parts = [part for part in [entry.entry_id, "contact", public_key[:10]] if part]
-                contact_id = "_".join(parts)
                 
                 _LOGGER.info(f"Creating diagnostic sensor for contact: {name}")
                 
@@ -320,7 +311,7 @@ async def async_setup_entry(
                     coordinator, 
                     name,
                     public_key,
-                    contact_id
+                    contact_id = public_key[:12]
                 )
                 
                 # Initialize attributes, icon, and name
@@ -592,6 +583,13 @@ class MeshCoreContactDiagnosticSensor(CoordinatorEntity, SensorEntity):
         # Set unique ID
         self._attr_unique_id = contact_id
         
+        self.entity_id = format_entity_id(
+            ENTITY_DOMAIN_SENSOR,
+            contact_name,
+            public_key[:12],
+            "contact"
+        )
+
         # Initial name (will be updated in _update_attributes)
         self._attr_name = contact_name
         
@@ -619,13 +617,14 @@ class MeshCoreContactDiagnosticSensor(CoordinatorEntity, SensorEntity):
             if not isinstance(contact, dict):
                 continue
                 
+            # Match by public key prefix
+            if contact.get("public_key", "").startswith(self.public_key):
+                return contact
+
             # Match by name
             if contact.get("adv_name") == self.contact_name:
                 return contact
                 
-            # Match by public key prefix
-            if contact.get("public_key", "").startswith(self.public_key):
-                return contact
                 
         return {}
 

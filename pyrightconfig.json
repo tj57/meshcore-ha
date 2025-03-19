@@ -1,0 +1,7 @@
+{
+    "ignore": [
+       "homeassistant"
+    ],
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false
+  }

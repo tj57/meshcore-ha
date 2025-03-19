@@ -58,4 +58,3 @@ DEFAULT_MESSAGES_INTERVAL: Final = 10   # 10 seconds - base polling interval
 
 # Other constants
 CONNECTION_TIMEOUT: Final = 10  # seconds
-MAX_MESSAGES_HISTORY: Final = 200  # number of messages to keep in history

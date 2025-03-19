@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.components import usb
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
@@ -21,13 +20,11 @@ from .const import (
     CONF_TCP_HOST,
     CONF_TCP_PORT,
     CONF_BAUDRATE,
-    CONF_SCAN_INTERVAL,
     CONNECTION_TYPE_USB,
     CONNECTION_TYPE_BLE,
     CONNECTION_TYPE_TCP,
     DEFAULT_BAUDRATE,
     DEFAULT_TCP_PORT,
-    DEFAULT_SCAN_INTERVAL,
     CONNECTION_TIMEOUT,
     CONF_REPEATER_SUBSCRIPTIONS,
     CONF_REPEATER_NAME,
@@ -215,7 +212,7 @@ async def validate_tcp_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[
         raise CannotConnect(f"Failed to connect: {str(ex)}")
 
 
-class MeshCoreConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class MeshCoreConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignore
     """Handle a config flow for MeshCore."""
 
     VERSION = 1
@@ -427,7 +424,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Update the config entry data
                 new_data = dict(self.config_entry.data)
                 new_data[CONF_REPEATER_SUBSCRIPTIONS] = self.repeater_subscriptions
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data) # type: ignore
                 
                 # Return to the init step to show updated list
                 return await self.async_step_init()
@@ -481,7 +478,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def _get_repeater_contacts(self):
         """Get repeater contacts from coordinator's cached data."""
         # Get the coordinator
-        coordinator = self.hass.data[DOMAIN].get(self.config_entry.entry_id)
+        coordinator = self.hass.data[DOMAIN].get(self.config_entry.entry_id) # type: ignore
         if not coordinator or not coordinator.data:
             return []
             
@@ -527,10 +524,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Update the config entry data
                 new_data = dict(self.config_entry.data)
                 new_data[CONF_REPEATER_SUBSCRIPTIONS] = self.repeater_subscriptions
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data) # type: ignore
                 
                 # Return to the init step
-                return await self.async_step_init()
+                return await self.async_step_init() # type: ignore
         
         # Get repeater contacts
         repeater_contacts = self._get_repeater_contacts()

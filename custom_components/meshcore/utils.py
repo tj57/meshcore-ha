@@ -8,10 +8,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     DEFAULT_DEVICE_NAME,
     DOMAIN,
-    ENTITY_DOMAIN_BINARY_SENSOR,
-    ENTITY_DOMAIN_SENSOR,
     MESSAGES_SUFFIX,
-    CONTACT_SUFFIX,
     CHANNEL_PREFIX,
 )
 
@@ -75,10 +72,9 @@ def get_channel_entity_id(domain: str, device_name: str, channel_idx: int, suffi
     return format_entity_id(domain, device_name, safe_channel, suffix)
 
 
-def get_contact_entity_id(domain: str, device_name: str, contact_name: str, suffix: str = MESSAGES_SUFFIX) -> str:
+def get_contact_entity_id(domain: str, device_name: str, pubkey: str, suffix: str = MESSAGES_SUFFIX) -> str:
     """Create a consistent entity ID for contact entities."""
-    safe_name = sanitize_name(contact_name)
-    return format_entity_id(domain, device_name, safe_name, suffix)
+    return format_entity_id(domain, device_name, pubkey, suffix)
 
 
 def extract_channel_idx(entity_key: str) -> int:

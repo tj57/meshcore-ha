@@ -148,12 +148,12 @@ class MeshCoreAPI:
         """Disconnect from the MeshCore device."""
         try:
             # Ensure proper cleanup of any transport objects
-            if self._connection and hasattr(self._connection, 'transport') and self._connection.transport:
+            if self._connection and hasattr(self._connection, 'transport') and self._connection.transport: # type: ignore
                 try:
-                    if hasattr(self._connection.transport, 'close'):
-                        self._connection.transport.close()
-                    elif hasattr(self._connection.transport, 'serial') and hasattr(self._connection.transport.serial, 'close'):
-                        self._connection.transport.serial.close()
+                    if hasattr(self._connection.transport, 'close'): # type: ignore
+                        self._connection.transport.close() # type: ignore
+                    elif hasattr(self._connection.transport, 'serial') and hasattr(self._connection.transport.serial, 'close'): # type: ignore
+                        self._connection.transport.serial.close() # type: ignore
                 except Exception as ex:
                     _LOGGER.error(f"Error while closing transport: {ex}")
                     
