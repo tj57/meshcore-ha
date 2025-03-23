@@ -198,7 +198,7 @@ class MeshCoreAPI:
                 # Try to get device firmware info
                 try:
                     _LOGGER.info("Requesting device firmware and hardware info")
-                    device_info = await self._mesh_core.send_device_query()
+                    device_info = await self._mesh_core.send_device_qeury()
                     if device_info and isinstance(device_info, dict):
                         _LOGGER.info(f"Device firmware info: version={device_info.get('firmware_version', 'Unknown')}, "
                                     f"manufacturer={device_info.get('manufacturer_name', 'Unknown')}")
