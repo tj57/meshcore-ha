@@ -2,6 +2,7 @@
 import logging
 import time
 import voluptuous as vol
+import json
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -11,9 +12,11 @@ from .const import (
     DOMAIN, 
     SERVICE_SEND_MESSAGE,
     SERVICE_SEND_CHANNEL_MESSAGE,
+    SERVICE_CLI_COMMAND,
     ATTR_NODE_ID,
     ATTR_CHANNEL_IDX,
     ATTR_MESSAGE,
+    ATTR_CLI_COMMAND,
     ATTR_ENTRY_ID,
     DEFAULT_DEVICE_NAME,
 )
@@ -36,6 +39,14 @@ SEND_CHANNEL_MESSAGE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CHANNEL_IDX): cv.positive_int,
         vol.Required(ATTR_MESSAGE): cv.string,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
+# Schema for cli_command service
+CLI_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CLI_COMMAND): cv.string,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -174,6 +185,53 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 if not entry_id:
                     return
     
+    async def async_cli_command_service(call: ServiceCall) -> None:
+        """Handle CLI command service call."""
+        command = call.data[ATTR_CLI_COMMAND]
+        entry_id = call.data.get(ATTR_ENTRY_ID)
+        
+        # Track if any command executed successfully
+        command_success = False
+        
+        # Iterate through all registered config entries
+        for config_entry_id, coordinator in hass.data[DOMAIN].items():            
+            # If entry_id is specified, only use the matching entry
+            if entry_id and entry_id != config_entry_id:
+                continue
+                
+            # Get the API from coordinator
+            api = coordinator.api
+            if api and api._connected:
+                try:
+                    _LOGGER.debug(
+                        "Executing CLI command: %s", command
+                    )
+                    
+                    result = await api.send_cli_command(command)
+                    
+                    if result.get("success", False):
+                        command_success = True
+                        _LOGGER.info(
+                            "Successfully executed CLI command: %s", command
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "CLI command execution failed: %s, error: %s", 
+                            command, result.get("error", "Unknown error")
+                        )
+                        
+                except Exception as ex:
+                    _LOGGER.error(
+                        "Error executing CLI command %s: %s", command, ex
+                    )
+                
+                # Only attempt with the first available API if no entry_id specified
+                if not entry_id:
+                    return
+        
+        if not command_success:
+            _LOGGER.error("Failed to execute CLI command on any device: %s", command)
+
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -188,6 +246,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         async_send_channel_message_service,
         schema=SEND_CHANNEL_MESSAGE_SCHEMA,
     )
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CLI_COMMAND,
+        async_cli_command_service,
+        schema=CLI_COMMAND_SCHEMA,
+    )
 
 async def async_unload_services(hass: HomeAssistant) -> None:
     """Unload MeshCore services."""
@@ -196,3 +261,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
         
     if hass.services.has_service(DOMAIN, SERVICE_SEND_CHANNEL_MESSAGE):
         hass.services.async_remove(DOMAIN, SERVICE_SEND_CHANNEL_MESSAGE)
+        
+    if hass.services.has_service(DOMAIN, SERVICE_CLI_COMMAND):
+        hass.services.async_remove(DOMAIN, SERVICE_CLI_COMMAND)

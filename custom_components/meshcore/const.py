@@ -26,10 +26,12 @@ DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 # Services
 SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_CHANNEL_MESSAGE: Final = "send_channel_message"
+SERVICE_CLI_COMMAND: Final = "cli_command"
 ATTR_NODE_ID: Final = "node_id"
 ATTR_PUBKEY_PREFIX: Final = "pubkey_prefix"
 ATTR_CHANNEL_IDX: Final = "channel_idx"
 ATTR_MESSAGE: Final = "message"
+ATTR_CLI_COMMAND: Final = "command"
 ATTR_ENTRY_ID: Final = "entry_id"
 
 # Platform constants

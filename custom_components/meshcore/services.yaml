@@ -59,3 +59,28 @@ send_channel_message:
       example: "abc123def456"
       selector:
         text:
+
+cli_command:
+  name: Send CLI command
+  description: >-
+    Send an arbitrary CLI command directly to the MeshCore node. This is an advanced feature
+    that provides direct access to the underlying CLI interface.
+    CAUTION: Commands like 'set_txpower', 'set_name', 'set_radio', 'reboot', etc. will 
+    make PERMANENT CHANGES to your node's configuration. Use with care.
+  fields:
+    command:
+      name: Command
+      description: >-
+        The CLI command to send to the node.
+        examples: advert, change_path <ct> <path>, set_name <name>, sync_time, etc.
+      required: true
+      example: "advert"
+      selector:
+        text:
+    entry_id:
+      name: Config Entry ID
+      description: The config entry ID if you have multiple MeshCore devices. Leave empty to use the first available device.
+      required: false
+      example: "abc123def456"
+      selector:
+        text:

@@ -129,6 +129,36 @@ data:
   message: "Broadcast to everyone on channel 0!"
 ```
 
+### CLI Command (Advanced)
+
+Send an arbitrary CLI command directly to the MeshCore node. This service provides direct access to the underlying CLI interface and enables automation of advanced features not otherwise exposed through the API.
+
+> ⚠️ **Advanced Feature**: This service directly exposes the CLI command interface and is intended for advanced users. Commands sent using this service may change or stop working in future firmware versions.
+
+Service: `meshcore.cli_command`
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `command` | string | Yes | The CLI command to send to the node (e.g., "get_bat", "info", "set_txpower 10") |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
+
+Example with arguments:
+```yaml
+service: meshcore.cli_command
+data:
+  command: "set_txpower 15"
+```
+
+Available commands include:
+- `get_bat` or `b` - Get battery level
+- `info` or `i` - Print node information
+- `reboot` - Reboot the node
+- `advert` or `a` - Send an advertisement
+- `set_txpower` or `txp` - Set transmit power (e.g., `set_txpower 10`)
+- `set_radio` or `rad` - Set radio parameters (e.g., `set_radio 868 125 7 5`)
+- `set_name` - Set node name (e.g., `set_name MyNode`)
+- And many more - refer to the MeshCore CLI documentation
+
 > For more detailed service definitions, see the [services.yaml](custom_components/meshcore/services.yaml) file.
 
 ## Automations
@@ -158,6 +188,46 @@ service: meshcore.send_message
 data:
   pubkey_prefix: "f293ac"
   message: "Hello using public key!"
+```
+
+## Automation Examples
+
+Below are examples of automations that utilize the MeshCore services.
+
+### Forward New Messages to Push Notifications
+```yaml
+alias: Meshcore Forward to Push
+description: "Forwards messages from any channel to a push notification"
+triggers:
+  - trigger: event
+    event_type: meshcore_message
+conditions:
+  - condition: template
+    value_template: "{{ trigger.event.data.message_type == 'channel'}}"
+actions:
+  - action: notify.notify
+    data:
+      message: >-
+        Meshcore Message {{ trigger.event.data.channel_display }} from {{
+        trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
+mode: single
+```
+
+### Scheduled Advertisement Broadcasting
+
+This automation sends an advertisement broadcast every 15 minutes to help maintain network connectivity and make your node more discoverable to other nodes in the mesh network.
+
+```yaml
+alias: MeshCore Scheduled Advertisement
+description: "Sends a MeshCore advertisement broadcast every 15 minutes"
+trigger:
+  - platform: time_pattern
+    minutes: "/15"  # Every 15 minutes
+action:
+  - service: meshcore.cli_command
+    data:
+      command: "advert"  # Or you can use the shorthand "a"
+mode: single
 ```
 
 ## Troubleshooting

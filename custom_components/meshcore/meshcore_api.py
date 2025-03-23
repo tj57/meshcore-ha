@@ -1,6 +1,7 @@
 """API for communicating with MeshCore devices using direct import."""
 import logging
 import asyncio
+import shlex
 import time
 from typing import Any, Dict, List, Optional
 from asyncio import Lock
@@ -12,6 +13,7 @@ from .vendor.mccli import (
     BLEConnection, 
     SerialConnection, 
     TCPConnection,
+    next_cmd,
 )
 
 from .const import (
@@ -198,7 +200,7 @@ class MeshCoreAPI:
                 # Try to get device firmware info
                 try:
                     _LOGGER.info("Requesting device firmware and hardware info")
-                    device_info = await self._mesh_core.send_device_qeury()
+                    device_info = await self._mesh_core.send_device_query()
                     if device_info and isinstance(device_info, dict):
                         _LOGGER.info(f"Device firmware info: version={device_info.get('firmware_version', 'Unknown')}, "
                                     f"manufacturer={device_info.get('manufacturer_name', 'Unknown')}")
@@ -697,3 +699,63 @@ class MeshCoreAPI:
             except Exception as ex:
                 _LOGGER.error(f"Error sending channel message: {ex}")
                 return False
+    
+    async def send_cli_command(self, command: str) -> dict:
+        """Send arbitrary CLI command to the node using mccli's next_cmd function.
+        
+        This provides direct access to the CLI command interface of the MeshCore device,
+        allowing advanced automation of node features not otherwise exposed via the API.
+        
+        Note: This is considered an advanced feature and relies on the internal CLI
+        implementation which may change in future firmware versions.
+        
+        Args:
+            command: The CLI command to send to the node (e.g., "get_bat", "info", etc.)
+            
+        Returns:
+            dict: Result of the command execution with success status
+        """
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return {"success": False, "error": "Not connected to MeshCore device"}
+            
+        async with self._device_lock:
+            try:
+                _LOGGER.info(f"Sending CLI command to MeshCore device: {command}")
+                
+                # Parse the command string into an array of arguments using shlex
+                # This properly handles quoted strings (e.g., "send f293ac "hello world"")
+                try:
+                    cmd_parts = shlex.split(command)
+                    _LOGGER.debug(f"Parsed command parts: {cmd_parts}")
+                    
+                    if not cmd_parts:
+                        _LOGGER.error("Empty command provided")
+                        return {"success": False, "error": "Empty command provided"}
+                except Exception as parse_ex:
+                    _LOGGER.error(f"Error parsing command: {parse_ex}")
+                    return {"success": False, "error": f"Error parsing command: {parse_ex}"}
+                
+                # Use the next_cmd function from mccli to process the command
+                try:
+                    # Process the command using the next_cmd function from mccli.py
+                    remaining_cmds = await next_cmd(self._mesh_core, cmd_parts)
+                    _LOGGER.info(f"CLI command executed, remaining commands: {remaining_cmds}")
+                    
+                    # If we're here, command was processed
+                    return {
+                        "success": True,
+                        "command": command,
+                        "remaining_cmds": remaining_cmds if remaining_cmds else []
+                    }
+                except Exception as cmd_ex:
+                    _LOGGER.error(f"Error executing CLI command '{command}': {cmd_ex}")
+                    return {
+                        "success": False, 
+                        "error": f"Error executing command: {cmd_ex}",
+                        "command": command
+                    }
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending CLI command: {ex}")
+                return {"success": False, "error": str(ex), "command": command}
