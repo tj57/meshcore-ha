@@ -87,24 +87,49 @@ For repeater nodes:
 
 ## Services
 
+The integration provides the following services to interact with MeshCore devices:
+
 ### Send Message
 
-Send a message to a specific node in the mesh network.
+Send a message to a specific node in the mesh network. You can identify the node by either its name or public key.
 
 Service: `meshcore.send_message`
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `node_id` | string | The ID of the node to send the message to (first 8 chars of public key) |
-| `message` | string | The message text to send |
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `node_id` | string | One of node_id or pubkey_prefix required | The name of the node to send the message to |
+| `pubkey_prefix` | string | One of node_id or pubkey_prefix required | The public key prefix (at least 6 characters) |
+| `message` | string | Yes | The message text to send |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
 
-Example:
+Example using node name:
 ```yaml
 service: meshcore.send_message
 data:
-  node_id: "a1b2c3d4"
+  node_id: "NodeAlpha"
   message: "Hello from Home Assistant!"
 ```
+### Send Channel Message
+
+Send a message to a specific channel on the mesh network.
+
+Service: `meshcore.send_channel_message`
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `channel_idx` | integer | Yes | The channel index to send to (usually 0-3) |
+| `message` | string | Yes | The message text to send |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
+
+Example:
+```yaml
+service: meshcore.send_channel_message
+data:
+  channel_idx: 0
+  message: "Broadcast to everyone on channel 0!"
+```
+
+> For more detailed service definitions, see the [services.yaml](custom_components/meshcore/services.yaml) file.
 
 ## Automations
 
@@ -125,6 +150,14 @@ actions:
         Meshcore Message {{ trigger.event.data.channel_display }} from {{
         trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
 mode: single
+```
+
+Example using public key:
+```yaml
+service: meshcore.send_message
+data:
+  pubkey_prefix: "f293ac"
+  message: "Hello using public key!"
 ```
 
 ## Troubleshooting

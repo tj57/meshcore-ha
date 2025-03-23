@@ -54,10 +54,17 @@ def async_describe_events(
         
         # Format message based on type and direction
         if outgoing:
-            receiver = data.get('receiver', 'Unknown')
-            pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
-            description = f"Sent to {receiver}{f' ({pub_key_short})' if pub_key_short else ''}: {message}"
-            icon = "mdi:message-arrow-right-outline"
+            if message_type == MESSAGE_TYPE_CHANNEL:
+                # Outgoing channel message - format as "Sent to channel X: message"
+                channel_name = data.get('channel', data.get('receiver', 'Unknown').replace('channel_', ''))
+                description = f"Sent to channel {channel_name}: {message}"
+                icon = "mdi:message-arrow-right-outline"
+            else:
+                # Outgoing direct message
+                receiver = data.get('receiver', 'Unknown')
+                pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
+                description = f"Sent to {receiver}{f' ({pub_key_short})' if pub_key_short else ''}: {message}"
+                icon = "mdi:message-arrow-right-outline"
         elif message_type == MESSAGE_TYPE_CHANNEL:
             # Format as <channel> Sender: Message
             channel_display = data.get("channel_display", f"<{channel}>")
@@ -98,20 +105,28 @@ def async_describe_events(
         message = data.get("message", "")
         sender_name = data.get("sender_name", "")
         receiver_name = data.get("receiver_name", "")
+        recipient_name = data.get("recipient_name", "")
         is_incoming = data.get("is_incoming", True)
         
+        # For incoming messages
         if is_incoming:
-            # For incoming messages, use sender's name as the display name
-            name = f"{sender_name if sender_name else 'Unknown Sender'}:"
+            # Use sender's name as the display name
+            name = sender_name if sender_name else "Unknown Sender"
             # Just show the message content without repeating the name
             description = message
             icon = "mdi:message-text"
         else:
-            # For outgoing messages, use receiver's name as the display name
-            name = receiver_name if receiver_name else "Unknown Receiver"
-            # Format as "To Receiver: Message" for outgoing DMs
-            description = f"To {name}: {message}"
+            # For outgoing messages
+            # Use the device (sender) name as the display name in the logbook
+            name = data.get("sender_name", "MeshCore")
+            
+            # Format the recipient part consistently
+            receiver = recipient_name if recipient_name else (receiver_name if receiver_name else "Unknown")
+            description = f"To {receiver}: {message}"
+                
             icon = "mdi:message-arrow-right-outline"
+        
+        _LOGGER.debug(f"Logbook entry: name={name}, message={description}, incoming={is_incoming}")
         
         return {
             "name": name,
@@ -258,6 +273,8 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
         "domain": DOMAIN,
         "message_type": message["message_type"],
         "outgoing": message["outgoing"],
+        # Make sure type is included in the event data for logbook formatting
+        "type": message.get("type"),
     }
     
     # Only include fields that have values
@@ -309,22 +326,48 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
     
     # Handle direct messages
     elif message["message_type"] == MESSAGE_TYPE_DIRECT:
-        if message["client_name"] != "Unknown":
-            # Get sanitized client name
-            client_name = sanitize_name(message["client_name"])
-            pub_key = message["sender_key"]
-            # Add client-specific entity ID
-            entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pub_key)
-            event_data["entity_id"] = entity_id
+        # For outgoing messages, use the receiver name
+        if message["outgoing"]:
+            client_name = sanitize_name(message["receiver_name"] or "Unknown")
             
-            # Add is_incoming flag for client messages
-            event_data["is_incoming"] = not message["outgoing"]
+            # Use the contact_public_key directly from the message
+            pub_key = message.get("contact_public_key", "")
+            _LOGGER.info(f"Outgoing message to {message['receiver_name']}, using pubkey: {pub_key[:12]}")
             
-            # Debug log the direct message event details  
-            _LOGGER.info(f"Firing direct message event with entity_id: {entity_id}, client: {client_name}")
+            # Add recipient display info
+            event_data["recipient_name"] = message["receiver_name"]
+            event_data["name"] = message["receiver_name"]
+        else:
+            # For incoming messages, use the sender name
+            client_name = sanitize_name(message["sender_name"] or "Unknown")
+            # Use the sender key or public key if available
+            pub_key = message.get("contact_public_key", message.get("sender_key", "incoming"))
+            if isinstance(pub_key, (bytes, bytearray)):
+                pub_key = pub_key.hex()
+                
+            # For incoming, name is the sender
+            event_data["name"] = message["sender_name"]
             
-            # Fire direct message event
-            hass.bus.async_fire(EVENT_MESHCORE_CLIENT_MESSAGE, event_data)
+        # Add client name to event data for display
+        event_data["client_name"] = client_name
+        
+        # Add client-specific entity ID - critical for message history
+        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pub_key[:12])
+        event_data["entity_id"] = entity_id
+        
+        # Add is_incoming flag for client messages
+        event_data["is_incoming"] = not message["outgoing"]
+        
+        # For outgoing direct messages, update the description
+        if message["outgoing"]:
+            client_name = message["sender_name"]
+            event_data["description"] = f"To {message['receiver_name']}: {message['text']}"
+        
+        # Debug log the direct message event details  
+        _LOGGER.info(f"Firing direct message event with entity_id: {entity_id}, client: {client_name}, outgoing: {message['outgoing']}")
+        
+        # Fire direct message event
+        hass.bus.async_fire(EVENT_MESHCORE_CLIENT_MESSAGE, event_data)
     
     # Update the message timestamps in the coordinator
     try:

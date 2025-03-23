@@ -566,11 +566,18 @@ class MeshCoreAPI:
                 _LOGGER.exception("Detailed exception for version check")
                 return None
     
-    async def send_message(self, node_name: str, message: str) -> bool:
-        """Send message to a specific node by name."""
+    async def send_message(self, node_name: str, message: str) -> tuple[bool, str, str]:
+        """Send message to a specific node by name.
+        
+        Returns:
+            tuple: (success, public_key, name)
+                - success: Whether the message was sent successfully
+                - public_key: The public key of the node (or empty if failed)
+                - name: The node name (same as input if successful)
+        """
         if not self._connected or not self._mesh_core:
             _LOGGER.error("Not connected to MeshCore device")
-            return False
+            return False, "", ""
             
         async with self._device_lock:
             try:
@@ -578,23 +585,27 @@ class MeshCoreAPI:
                 if not self._cached_contacts:
                     # We're behind a lock, so avoid calling another locked method
                     _LOGGER.error("No cached contacts available - call get_contacts first")
-                    return False
+                    return False, "", ""
                     
                 # Check if the node exists
                 if node_name not in self._cached_contacts:
                     _LOGGER.error("Node %s not found in contacts", node_name)
-                    return False
-                    
+                    return False, "", ""
+                
+                # Get the node's public key
+                contact_pubkey = self._cached_contacts[node_name]["public_key"]
+                pubkey_prefix = bytes.fromhex(contact_pubkey)[:6]
+                
                 # Send the message using the MeshCore instance
-                _LOGGER.info(f"Sending message to {node_name}: {message}")
+                _LOGGER.info(f"Sending message to {node_name} (pubkey: {contact_pubkey[:12]}): {message}")
                 result = await self._mesh_core.send_msg(
-                    bytes.fromhex(self._cached_contacts[node_name]["public_key"])[:6],
+                    pubkey_prefix,
                     message
                 )
                 
                 if not result:
                     _LOGGER.error(f"Failed to send message to {node_name}")
-                    return False
+                    return False, "", ""
                     
                 # Wait for the message ACK with shorter timeout
                 _LOGGER.debug(f"Waiting for ACK from {node_name}...")
@@ -605,8 +616,84 @@ class MeshCoreAPI:
                 else:
                     _LOGGER.warning(f"No ACK received from {node_name}")
                 
-                return ack_received
+                # Return success flag, public key, and node name
+                return ack_received, contact_pubkey, node_name
                 
             except Exception as ex:
                 _LOGGER.error(f"Error sending message: {ex}")
+                return False, "", ""
+                
+    async def send_message_by_pubkey(self, pubkey_prefix: str, message: str) -> tuple[bool, str, str]:
+        """Send message to a node by public key prefix."""
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return False, "", ""
+            
+        async with self._device_lock:
+            try:
+                if not self._cached_contacts:
+                    _LOGGER.error("No cached contacts available - call get_contacts first")
+                    return False, "", ""
+                
+                # Find contact with matching pubkey prefix
+                found_name = None
+                full_pubkey = None
+                
+                for name, contact in self._cached_contacts.items():
+                    if "public_key" in contact and contact["public_key"].startswith(pubkey_prefix):
+                        found_name = name
+                        full_pubkey = contact["public_key"]
+                        break
+                
+                if not full_pubkey:
+                    _LOGGER.error(f"No contact found with pubkey prefix: {pubkey_prefix}")
+                    return False, "", ""
+                    
+                pubkey_bytes = bytes.fromhex(full_pubkey)[:6]
+                
+                _LOGGER.info(f"Sending message to {found_name or pubkey_prefix} (pubkey: {full_pubkey[:12]})")
+                result = await self._mesh_core.send_msg(
+                    pubkey_bytes,
+                    message
+                )
+                
+                if not result:
+                    _LOGGER.error(f"Failed to send message to pubkey {pubkey_prefix}")
+                    return False, "", ""
+                    
+                ack_received = await self._mesh_core.wait_ack(3)
+                
+                if ack_received:
+                    _LOGGER.info(f"Message acknowledged")
+                else:
+                    _LOGGER.warning(f"No ACK received")
+                
+                return ack_received, full_pubkey, found_name or ""
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending message by pubkey: {ex}")
+                return False, "", ""
+                
+    async def send_channel_message(self, channel_idx: int, message: str) -> bool:
+        """Send message to a specific channel by index."""
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return False
+            
+        async with self._device_lock:
+            try:
+                # Send the message to the channel using the MeshCore instance
+                _LOGGER.info(f"Sending message to channel {channel_idx}: {message}")
+                result = await self._mesh_core.send_chan_msg(channel_idx, message)
+                
+                if not result:
+                    _LOGGER.error(f"Failed to send message to channel {channel_idx}")
+                    return False
+                
+                # Note: Channel messages don't have ACKs like direct messages
+                _LOGGER.info(f"Successfully sent message to channel {channel_idx}")
+                return True
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending channel message: {ex}")
                 return False
