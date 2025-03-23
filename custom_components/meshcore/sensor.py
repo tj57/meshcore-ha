@@ -270,68 +270,6 @@ async def async_setup_entry(
     # Store the async_add_entities function for later use
     coordinator.sensor_add_entities = async_add_entities
     
-    # Track contacts we've already created sensors for
-    if not hasattr(coordinator, "tracked_diagnostic_contacts"):
-        coordinator.tracked_diagnostic_contacts = set()
-    
-    # Function to create and add contact diagnostic sensors
-    @callback
-    def create_contact_diagnostic_sensors(contacts=None):
-        _LOGGER.info(f"Creating contact diagnostic sensors with {len(contacts) if contacts else 0} contacts")
-        new_entities = []
-        
-        # Only proceed if we have contacts
-        if not contacts:
-            _LOGGER.warning("No contacts provided for diagnostic sensor creation")
-            return
-            
-        for contact in contacts:
-            if not isinstance(contact, dict):
-                continue
-                
-            try:
-                name = contact.get("adv_name", "Unknown")
-                public_key = contact.get("public_key", "")
-                
-                if not public_key:
-                    continue
-                    
-                # Skip if we already have a sensor for this contact
-                if public_key in coordinator.tracked_diagnostic_contacts:
-                    continue
-                    
-                # Track this contact
-                coordinator.tracked_diagnostic_contacts.add(public_key)
-                
-                _LOGGER.info(f"Creating diagnostic sensor for contact: {name}")
-                
-                # Create diagnostic sensor for this contact
-                sensor = MeshCoreContactDiagnosticSensor(
-                    coordinator, 
-                    name,
-                    public_key,
-                    contact_id = public_key[:12]
-                )
-                
-                # Initialize attributes, icon, and name
-                sensor._update_attributes()
-                new_entities.append(sensor)
-                
-            except Exception as ex:
-                _LOGGER.error("Error setting up contact diagnostic sensor: %s", ex)
-        
-        # Add entities if any were created
-        if new_entities:
-            _LOGGER.info(f"Adding {len(new_entities)} new contact diagnostic sensors")
-            async_add_entities(new_entities)
-    
-    # Initial entity creation with current contacts
-    initial_contacts = coordinator.data.get("contacts", [])
-    create_contact_diagnostic_sensors(initial_contacts)
-    
-    # Store the function on the coordinator for future calls
-    coordinator.create_contact_diagnostic_sensors = create_contact_diagnostic_sensors
-    
     # First, handle cleanup of removed repeater devices
     # Get registries
     entity_registry = async_get_entity_registry(hass)
@@ -373,7 +311,7 @@ async def async_setup_entry(
                 
             _LOGGER.info(f"Creating sensors for repeater: {repeater_name}")
             
-            # Create repeater status sensor
+            # Create repeater sensors for other stats (not status which is now a binary sensor)
             for description in REPEATER_SENSORS:
                 try:
                     # Create a sensor for this repeater stat
@@ -467,10 +405,10 @@ class MeshCoreSensor(CoordinatorEntity, SensorEntity):
             return self.coordinator.data.get("tx_power")
             
         elif key == "latitude":
-            return self.coordinator.data.get("adv_lat")
+            return self.coordinator.data.get("lat")
             
         elif key == "longitude":
-            return self.coordinator.data.get("adv_lon")
+            return self.coordinator.data.get("long")
             
         elif key == "frequency":
             freq = self.coordinator.data.get("radio_freq")
@@ -549,8 +487,8 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
             }
             
             # Add location if available
-            if "adv_lat" in contact and "adv_lon" in contact:
-                contact_info["location"] = f"{contact.get('adv_lat')}, {contact.get('adv_lon')}"
+            if "lat" in contact and "lon" in contact:
+                contact_info["location"] = f"{contact.get('lat')}, {contact.get('lon')}"
                 
             contact_list.append(contact_info)
             
@@ -563,133 +501,6 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
         }
         
 
-class MeshCoreContactDiagnosticSensor(CoordinatorEntity, SensorEntity):
-    """A diagnostic sensor for a single MeshCore contact."""
-
-    def __init__(
-        self,
-        coordinator: DataUpdateCoordinator,
-        contact_name: str,
-        public_key: str,
-        contact_id: str,
-    ) -> None:
-        """Initialize the contact diagnostic sensor."""
-        super().__init__(coordinator)
-        
-        self.contact_name = contact_name
-        self.public_key = public_key
-        
-        # Set unique ID
-        self._attr_unique_id = contact_id
-        
-        self.entity_id = format_entity_id(
-            ENTITY_DOMAIN_SENSOR,
-            contact_name,
-            public_key[:12],
-            "contact"
-        )
-
-        # Initial name (will be updated in _update_attributes)
-        self._attr_name = contact_name
-        
-        # Set device info to link to the main device
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
-        )
-        
-        # Set entity category to diagnostic
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        
-        # Icon will be set dynamically in the _update_attributes method
-
-    def _get_contact_data(self) -> Dict[str, Any]:
-        """Get the data for this contact from the coordinator."""
-        if not self.coordinator.data or not isinstance(self.coordinator.data, dict):
-            return {}
-            
-        contacts = self.coordinator.data.get("contacts", [])
-        if not contacts:
-            return {}
-            
-        # Find this contact by name or by public key
-        for contact in contacts:
-            if not isinstance(contact, dict):
-                continue
-                
-            # Match by public key prefix
-            if contact.get("public_key", "").startswith(self.public_key):
-                return contact
-
-            # Match by name
-            if contact.get("adv_name") == self.contact_name:
-                return contact
-                
-                
-        return {}
-
-    def _update_attributes(self) -> Dict[str, Any]:
-        """Update the attributes and icon based on contact data."""
-        contact = self._get_contact_data()
-        if not contact:
-            # If contact not found, use default icon
-            self._attr_icon = "mdi:radio-tower"
-            self._attr_name = self.contact_name
-            return {"status": "unknown"}
-            
-        # Create a copy of the contact data for attributes
-        attributes = {}
-        
-        # Add all contact properties directly as attributes
-        for key, value in contact.items():
-            attributes[key] = value
-            
-        # Get the node type and set icon accordingly
-        node_type = contact.get("type")
-        
-        # Set different icons and names based on node type
-        if node_type == NodeType.CLIENT:  # Client
-            self._attr_icon = "mdi:account"
-            self._attr_name = f"{self.contact_name} (Client)"
-            attributes["node_type_str"] = "Client"
-        elif node_type == NodeType.REPEATER:  # Repeater
-            self._attr_icon = "mdi:radio-tower"
-            self._attr_name = f"{self.contact_name} (Repeater)"
-            attributes["node_type_str"] = "Repeater"
-        else:
-            # Default icon if type is unknown
-            self._attr_icon = "mdi:help-network"
-            self._attr_name = f"{self.contact_name} (Unknown)"
-            attributes["node_type_str"] = "Unknown"
-        
-        # Format last advertisement time if available
-        if "last_advert" in attributes and attributes["last_advert"] > 0:
-            last_advert_time = datetime.fromtimestamp(attributes["last_advert"])
-            attributes["last_advert_formatted"] = last_advert_time.isoformat()
-            
-        return attributes
-        
-    @property
-    def native_value(self) -> str:
-        """Return the contact's status as the state."""
-        contact = self._get_contact_data()
-        if not contact:
-            return "unknown"
-            
-        # Check last advertisement time for contact status
-        last_advert = contact.get("last_advert", 0)
-        if last_advert > 0:
-            # Calculate time since last advert
-            time_since = time.time() - last_advert
-            # If less than 12 hour, consider fresh
-            if time_since < 3600*12:
-                return "fresh"
-        
-        return "stale"
-        
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        """Return the raw contact data as attributes."""
-        return self._update_attributes()
 
 
 class MeshCoreRepeaterSensor(CoordinatorEntity, SensorEntity):

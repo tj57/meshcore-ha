@@ -258,7 +258,11 @@ class MeshCoreAPI:
                         for name, contact in contacts.items():
                             node_type = "Client" if contact.get("type") == NodeType.CLIENT else "Repeater" if contact.get("type") == NodeType.REPEATER else "Unknown"
                             last_seen = contact.get("last_advert", 0)
+                            # map to lat/lon if available
                             
+                            contact['lat'] = contact.get('adv_lat')
+                            contact['lon'] = contact.get('adv_lon') 
+
                             # Convert to human-readable time if available
                             if last_seen > 0:
                                 from datetime import datetime

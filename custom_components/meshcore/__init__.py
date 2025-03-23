@@ -172,6 +172,11 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             if hasattr(self, "create_contact_diagnostic_sensors"):
                 self.logger.info("Creating new diagnostic sensor entities for contacts")
                 self.create_contact_diagnostic_sensors(latest_contacts)
+                
+            # Contact diagnostic binary sensors
+            if hasattr(self, "create_contact_diagnostic_binary_sensors"):
+                self.logger.info("Creating new diagnostic binary sensors for contacts")
+                self.create_contact_diagnostic_binary_sensors(latest_contacts)
         
         # Add the method to the class
         self._create_new_contact_entities = _create_new_contact_entities.__get__(self)
