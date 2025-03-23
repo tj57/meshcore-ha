@@ -25,10 +25,9 @@ from homeassistant.helpers.update_coordinator import (
 
 from .const import (
     DOMAIN,
-    NODE_TYPE_CLIENT,
-    NODE_TYPE_REPEATER,
     ENTITY_DOMAIN_SENSOR,
     CONF_REPEATER_SUBSCRIPTIONS,
+    NodeType,
 )
 from .utils import (
     sanitize_name,
@@ -544,7 +543,7 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
             # Extract the key info we want to display
             contact_info = {
                 "name": contact.get("adv_name", "Unknown"),
-                "type": "Repeater" if contact.get("type") == NODE_TYPE_REPEATER else "Client",
+                "type": "Repeater" if contact.get("type") == NodeType.REPEATER else "Client",
                 "public_key": contact.get("public_key", "")[:16] + "...",  # Truncate for display
                 "last_seen": contact.get("last_advert", 0),
             }
@@ -648,11 +647,11 @@ class MeshCoreContactDiagnosticSensor(CoordinatorEntity, SensorEntity):
         node_type = contact.get("type")
         
         # Set different icons and names based on node type
-        if node_type == NODE_TYPE_CLIENT:  # Client
+        if node_type == NodeType.CLIENT:  # Client
             self._attr_icon = "mdi:account"
             self._attr_name = f"{self.contact_name} (Client)"
             attributes["node_type_str"] = "Client"
-        elif node_type == NODE_TYPE_REPEATER:  # Repeater
+        elif node_type == NodeType.REPEATER:  # Repeater
             self._attr_icon = "mdi:radio-tower"
             self._attr_name = f"{self.contact_name} (Repeater)"
             attributes["node_type_str"] = "Repeater"

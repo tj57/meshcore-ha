@@ -8,12 +8,11 @@ from homeassistant.core import HomeAssistant, callback, Event
 
 from .const import (
     DOMAIN,
-    NODE_TYPE_CLIENT,
-    NODE_TYPE_REPEATER,
     ENTITY_DOMAIN_BINARY_SENSOR,
     ENTITY_DOMAIN_SENSOR,
     CONTACT_SUFFIX,
     DEFAULT_DEVICE_NAME,
+    NodeType,
 )
 from .utils import (
     get_channel_entity_id,
@@ -377,7 +376,7 @@ def log_contact_seen(hass: HomeAssistant, contact_data: Dict[str, Any]) -> None:
     public_key = contact_data.get("public_key", "")
     
     # Determine contact type description
-    contact_type = "Client" if node_type == NODE_TYPE_CLIENT else "Repeater" if node_type == NODE_TYPE_REPEATER else "Node"
+    contact_type = "Client" if node_type == NodeType.CLIENT else "Repeater" if node_type == NodeType.REPEATER else "Node"
     
     # Create event data for logbook
     contact_event_data = {

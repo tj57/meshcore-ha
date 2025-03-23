@@ -35,6 +35,7 @@ from .const import (
     CONF_MESSAGES_INTERVAL,
     DEFAULT_INFO_INTERVAL,
     DEFAULT_MESSAGES_INTERVAL,
+    NodeType,
 )
 from .meshcore_api import MeshCoreAPI
 
@@ -491,7 +492,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 continue
                 
             contact_name = contact.get("adv_name", "")
-            contact_type = contact.get("type", 0)
+            contact_type = contact.get("type", NodeType.REPEATER)
             
             # Type 2 indicates a repeater
             if contact_name and contact_type == 2:

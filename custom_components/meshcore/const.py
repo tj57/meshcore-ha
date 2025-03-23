@@ -1,4 +1,5 @@
 """Constants for the MeshCore integration."""
+from enum import IntEnum
 from typing import Final
 
 DOMAIN: Final = "meshcore"
@@ -27,10 +28,6 @@ SERVICE_SEND_MESSAGE: Final = "send_message"
 ATTR_NODE_ID: Final = "node_id"
 ATTR_MESSAGE: Final = "message"
 
-# Node types
-NODE_TYPE_CLIENT: Final = 1
-NODE_TYPE_REPEATER: Final = 2
-
 # Platform constants
 PLATFORM_MESSAGE: Final = "message"
 
@@ -58,3 +55,7 @@ DEFAULT_MESSAGES_INTERVAL: Final = 10   # 10 seconds - base polling interval
 
 # Other constants
 CONNECTION_TIMEOUT: Final = 10  # seconds
+
+class NodeType(IntEnum):
+    CLIENT = 1
+    REPEATER = 2

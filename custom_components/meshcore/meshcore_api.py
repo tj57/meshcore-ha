@@ -1,13 +1,10 @@
 """API for communicating with MeshCore devices using direct import."""
 import logging
 import asyncio
-import json
 import time
-import os
-import sys
-from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 from asyncio import Lock
+from enum import IntEnum
 
 # Import directly from the vendor module
 from .vendor.mccli import (
@@ -15,9 +12,6 @@ from .vendor.mccli import (
     BLEConnection, 
     SerialConnection, 
     TCPConnection,
-    UART_SERVICE_UUID,
-    UART_RX_CHAR_UUID,
-    UART_TX_CHAR_UUID
 )
 
 from .const import (
@@ -26,6 +20,7 @@ from .const import (
     CONNECTION_TYPE_TCP,
     DEFAULT_BAUDRATE,
     DEFAULT_TCP_PORT,
+    NodeType,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -259,7 +254,7 @@ class MeshCoreAPI:
                         
                         # Log details about each contact for debugging
                         for name, contact in contacts.items():
-                            node_type = "Client" if contact.get("type") == 1 else "Repeater" if contact.get("type") == 2 else "Unknown"
+                            node_type = "Client" if contact.get("type") == NodeType.CLIENT else "Repeater" if contact.get("type") == NodeType.REPEATER else "Unknown"
                             last_seen = contact.get("last_advert", 0)
                             
                             # Convert to human-readable time if available
