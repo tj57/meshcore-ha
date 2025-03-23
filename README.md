@@ -109,6 +109,15 @@ data:
   node_id: "NodeAlpha"
   message: "Hello from Home Assistant!"
 ```
+
+Example using public key:
+```yaml
+service: meshcore.send_message
+data:
+  pubkey_prefix: "f293ac"
+  message: "Hello using public key!"
+```
+
 ### Send Channel Message
 
 Send a message to a specific channel on the mesh network.
@@ -173,35 +182,6 @@ Available commands include:
 - And many more - refer to the MeshCore CLI documentation
 
 > For more detailed service definitions, see the [services.yaml](custom_components/meshcore/services.yaml) file.
-
-## Automations
-
-### Forward New Messages to Push Notifications
-```yaml
-alias: Meshcore Forward to Push
-description: "Forwards messages from any channel to a push notification"
-triggers:
-  - trigger: event
-    event_type: meshcore_message
-conditions:
-  - condition: template
-    value_template: "{{ trigger.event.data.message_type == 'channel'}}"
-actions:
-  - action: notify.notify
-    data:
-      message: >-
-        Meshcore Message {{ trigger.event.data.channel_display }} from {{
-        trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
-mode: single
-```
-
-Example using public key:
-```yaml
-service: meshcore.send_message
-data:
-  pubkey_prefix: "f293ac"
-  message: "Hello using public key!"
-```
 
 ## Automation Examples
 
