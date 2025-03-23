@@ -106,6 +106,27 @@ data:
   message: "Hello from Home Assistant!"
 ```
 
+## Automations
+
+### Forward New Messages to Push Notifications
+```yaml
+alias: Meshcore Forward to Push
+description: "Forwards messages from any channel to a push notification"
+triggers:
+  - trigger: event
+    event_type: meshcore_message
+conditions:
+  - condition: template
+    value_template: "{{ trigger.event.data.message_type == 'channel'}}"
+actions:
+  - action: notify.notify
+    data:
+      message: >-
+        Meshcore Message {{ trigger.event.data.channel_display }} from {{
+        trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
+mode: single
+```
+
 ## Troubleshooting
 
 ### Connection Issues
