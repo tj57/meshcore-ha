@@ -87,24 +87,92 @@ For repeater nodes:
 
 ## Services
 
+The integration provides the following services to interact with MeshCore devices:
+
 ### Send Message
 
-Send a message to a specific node in the mesh network.
+Send a message to a specific node in the mesh network. You can identify the node by either its name or public key.
 
 Service: `meshcore.send_message`
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `node_id` | string | The ID of the node to send the message to (first 8 chars of public key) |
-| `message` | string | The message text to send |
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `node_id` | string | One of node_id or pubkey_prefix required | The name of the node to send the message to |
+| `pubkey_prefix` | string | One of node_id or pubkey_prefix required | The public key prefix (at least 6 characters) |
+| `message` | string | Yes | The message text to send |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
 
-Example:
+Example using node name:
 ```yaml
 service: meshcore.send_message
 data:
-  node_id: "a1b2c3d4"
+  node_id: "NodeAlpha"
   message: "Hello from Home Assistant!"
 ```
+### Send Channel Message
+
+Send a message to a specific channel on the mesh network.
+
+Service: `meshcore.send_channel_message`
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `channel_idx` | integer | Yes | The channel index to send to (usually 0-3) |
+| `message` | string | Yes | The message text to send |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
+
+Example:
+```yaml
+service: meshcore.send_channel_message
+data:
+  channel_idx: 0
+  message: "Broadcast to everyone on channel 0!"
+```
+
+### CLI Command (Advanced)
+
+Send an arbitrary CLI command directly to the MeshCore node. This service provides direct access to the underlying CLI interface and enables automation of advanced features not otherwise exposed through the API.
+
+> ⚠️ **Advanced Feature**: This service directly exposes the CLI command interface and is intended for advanced users. Commands sent using this service may change or stop working in future firmware versions.
+
+Service: `meshcore.cli_command`
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `command` | string | Yes | The CLI command to send to the node (e.g., "get_bat", "info", "set_txpower 10") |
+| `entry_id` | string | No | The config entry ID if you have multiple MeshCore devices |
+
+Example with arguments:
+```yaml
+service: meshcore.cli_command
+data:
+  command: "set_txpower 15"
+```
+
+Example sending commands to repeater
+```yaml
+action: meshcore.cli_command
+data:
+  command: cmd OldRepeaterName "set name Newname"
+```
+
+```yaml
+action: meshcore.cli_command
+data:
+  command: cmd Repeatername advert
+```
+
+Available commands include:
+- `get_bat` or `b` - Get battery level
+- `info` or `i` - Print node information
+- `reboot` - Reboot the node
+- `advert` or `a` - Send an advertisement
+- `set_txpower` or `txp` - Set transmit power (e.g., `set_txpower 10`)
+- `set_radio` or `rad` - Set radio parameters (e.g., `set_radio 868 125 7 5`)
+- `set_name` - Set node name (e.g., `set_name MyNode`)
+- And many more - refer to the MeshCore CLI documentation
+
+> For more detailed service definitions, see the [services.yaml](custom_components/meshcore/services.yaml) file.
 
 ## Automations
 
@@ -124,6 +192,54 @@ actions:
       message: >-
         Meshcore Message {{ trigger.event.data.channel_display }} from {{
         trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
+mode: single
+```
+
+Example using public key:
+```yaml
+service: meshcore.send_message
+data:
+  pubkey_prefix: "f293ac"
+  message: "Hello using public key!"
+```
+
+## Automation Examples
+
+Below are examples of automations that utilize the MeshCore services.
+
+### Forward New Messages to Push Notifications
+```yaml
+alias: Meshcore Forward to Push
+description: "Forwards messages from any channel to a push notification"
+triggers:
+  - trigger: event
+    event_type: meshcore_message
+conditions:
+  - condition: template
+    value_template: "{{ trigger.event.data.message_type == 'channel'}}"
+actions:
+  - action: notify.notify
+    data:
+      message: >-
+        Meshcore Message {{ trigger.event.data.channel_display }} from {{
+        trigger.event.data.sender_name }}: {{ trigger.event.data.message }}
+mode: single
+```
+
+### Scheduled Advertisement Broadcasting
+
+This automation sends an advertisement broadcast every 15 minutes to help maintain network connectivity and make your node more discoverable to other nodes in the mesh network.
+
+```yaml
+alias: MeshCore Scheduled Advertisement
+description: "Sends a MeshCore advertisement broadcast every 15 minutes"
+trigger:
+  - platform: time_pattern
+    minutes: "/15"  # Every 15 minutes
+action:
+  - service: meshcore.cli_command
+    data:
+      command: "advert"  # Or you can use the shorthand "a"
 mode: single
 ```
 

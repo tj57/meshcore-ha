@@ -166,10 +166,6 @@ class TCPConnection:
             
             # Check for valid frame header
             if cur_data[0] != 0x3E:
-                if self.mc and hasattr(self.mc, 'log_debug'):
-                    self.mc.log_debug(f"Error with received frame, invalid first byte: 0x{cur_data[0]:02x}")
-                printerr(f"Error with received frame, discarding invalid byte and continuing")
-                
                 # Discard the invalid byte and continue with the rest of the data
                 cur_data = cur_data[1:]
                 continue
@@ -187,15 +183,10 @@ class TCPConnection:
                 
                 # Check if we have the full frame
                 if len(cur_data) < 3 + frame_size:
-                    if self.mc and hasattr(self.mc, 'log_debug'):
-                        self.mc.log_debug(f"Incomplete frame: have {len(cur_data)} bytes, need {3 + frame_size}")
                     break  # Wait for more data
                 
                 # Extract the frame
                 frame = cur_data[3:3+frame_size]
-                
-                if self.mc and hasattr(self.mc, 'log_debug'):
-                    self.mc.log_debug(f"TCP frame complete: {frame_size} bytes, data={frame.hex()}")
                 
                 # Process the frame
                 if not self.mc is None:
@@ -568,6 +559,12 @@ class MeshCore:
         """ Changes the name of the node """
         return await self.send(b'\x08' + name.encode("ascii"))
 
+    async def set_coords(self, lat, lon):
+        return await self.send(b'\x0e'\
+                + int(lat*1e6).to_bytes(4, 'little', signed=True)\
+                + int(lon*1e6).to_bytes(4, 'little', signed=True)\
+                + int(0).to_bytes(4, 'little'))
+
     async def reboot(self):
         await self.send_only(b'\x13reboot')
         return True
@@ -600,8 +597,8 @@ class MeshCore:
     async def set_radio (self, freq, bw, sf, cr):
         """ Sets radio params """
         return await self.send(b"\x0b" \
-                + int(freq).to_bytes(4, 'little')\
-                + int(bw).to_bytes(4, 'little')\
+                + int(float(freq)*1000).to_bytes(4, 'little')\
+                + int(float(bw)*1000).to_bytes(4, 'little')\
                 + int(sf).to_bytes(1, 'little')\
                 + int(cr).to_bytes(1, 'little'))
 
@@ -612,6 +609,10 @@ class MeshCore:
                 + int(af).to_bytes(4, 'little')\
                 + int(0).to_bytes(1, 'little')\
                 + int(0).to_bytes(1, 'little'))
+
+    async def set_devicepin (self, pin):
+        return await self.send(b"\x25" \
+                + int(pin).to_bytes(4, 'little'))
 
     async def get_contacts(self):
         """ Starts retreiving contacts """
@@ -746,6 +747,17 @@ async def next_cmd(mc, cmds):
     """ process next command """
     argnum = 0
     match cmds[0] :
+        case "q":
+            print(await mc.send_device_qeury())
+        case "get_time" | "clock" :
+            if len(cmds) > 1 and cmds[1] == "sync" :
+                argnum=1
+                print(await mc.set_time(int(time.time())))
+            else:
+                timestamp = await mc.get_time()
+                print('Current time :'
+                    f' {datetime.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")}'
+                    f' ({timestamp})')
         case "device_info" | "info" | "di" :
             device_info = await mc.send_device_query()
             print(json.dumps(device_info, indent=4))
@@ -765,6 +777,34 @@ async def next_cmd(mc, cmds):
         case "set_radio"|"rad" :
             argnum = 4
             print(await mc.set_radio(cmds[1], cmds[2], cmds[3], cmds[4]))
+        case "set_name" :
+            argnum = 1
+            print(await mc.set_name(cmds[1]))
+        case "set":
+            argnum = 2
+            match cmds[1]:
+                case "pin":
+                    print (await mc.set_devicepin(cmds[2]))
+                case "radio":
+                    params=cmds[2].split(",")
+                    print (await mc.set_radio(params[0], params[1], params[2], params[3]))
+                case "name":
+                    print (await mc.set_name(cmds[2]))
+                case "tx":
+                    print (await mc.set_tx_power(cmds[2]))
+                case "lat":
+                    print (await mc.set_coords(\
+                            float(cmds[2]),\
+                            mc.self_infos['adv_lon']))
+                case "lon":
+                    print (await mc.set_coords(\
+                            mc.self_infos['adv_lat'],\
+                            float(cmds[2])))
+                case "coords":
+                    params=cmds[2].split(",")
+                    print (await mc.set_coords(\
+                            float(params[0]),\
+                            float(params[1])))
         case "set_tuning"|"tun" :
             argnum = 2
             print(await mc.set_tuning(cmds[1], cmds[2]))

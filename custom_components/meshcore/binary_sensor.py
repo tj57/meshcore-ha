@@ -21,6 +21,7 @@ from .const import (
     ENTITY_DOMAIN_BINARY_SENSOR,
     MESSAGES_SUFFIX,
     CHANNEL_PREFIX,
+    NodeType,
 )
 from .utils import (
     sanitize_name,
@@ -72,6 +73,9 @@ async def async_setup_entry(
             return
         for contact in contacts:
             if not isinstance(contact, dict):
+                continue
+
+            if contact.get("type") == NodeType.REPEATER:
                 continue
                 
             contact_name = contact.get("adv_name", "")
@@ -212,7 +216,7 @@ class MeshCoreMessageEntity(CoordinatorEntity, BinarySensorEntity):
             # For channel-specific message entities
             try:
                 channel_idx = extract_channel_idx(self.entity_key)
-                attributes["channel_index"] = channel_idx
+                attributes["channel_index"] = f"{channel_idx}"
             except (ValueError, TypeError):
                 _LOGGER.warning(f"Could not get channel index from {self.entity_key}")
         elif self.public_key:

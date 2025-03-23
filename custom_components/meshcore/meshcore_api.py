@@ -1,13 +1,11 @@
 """API for communicating with MeshCore devices using direct import."""
 import logging
 import asyncio
-import json
+import shlex
 import time
-import os
-import sys
-from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 from asyncio import Lock
+from enum import IntEnum
 
 # Import directly from the vendor module
 from .vendor.mccli import (
@@ -15,9 +13,7 @@ from .vendor.mccli import (
     BLEConnection, 
     SerialConnection, 
     TCPConnection,
-    UART_SERVICE_UUID,
-    UART_RX_CHAR_UUID,
-    UART_TX_CHAR_UUID
+    next_cmd,
 )
 
 from .const import (
@@ -26,6 +22,7 @@ from .const import (
     CONNECTION_TYPE_TCP,
     DEFAULT_BAUDRATE,
     DEFAULT_TCP_PORT,
+    NodeType,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -259,7 +256,7 @@ class MeshCoreAPI:
                         
                         # Log details about each contact for debugging
                         for name, contact in contacts.items():
-                            node_type = "Client" if contact.get("type") == 1 else "Repeater" if contact.get("type") == 2 else "Unknown"
+                            node_type = "Client" if contact.get("type") == NodeType.CLIENT else "Repeater" if contact.get("type") == NodeType.REPEATER else "Unknown"
                             last_seen = contact.get("last_advert", 0)
                             
                             # Convert to human-readable time if available
@@ -571,11 +568,18 @@ class MeshCoreAPI:
                 _LOGGER.exception("Detailed exception for version check")
                 return None
     
-    async def send_message(self, node_name: str, message: str) -> bool:
-        """Send message to a specific node by name."""
+    async def send_message(self, node_name: str, message: str) -> tuple[bool, str, str]:
+        """Send message to a specific node by name.
+        
+        Returns:
+            tuple: (success, public_key, name)
+                - success: Whether the message was sent successfully
+                - public_key: The public key of the node (or empty if failed)
+                - name: The node name (same as input if successful)
+        """
         if not self._connected or not self._mesh_core:
             _LOGGER.error("Not connected to MeshCore device")
-            return False
+            return False, "", ""
             
         async with self._device_lock:
             try:
@@ -583,23 +587,27 @@ class MeshCoreAPI:
                 if not self._cached_contacts:
                     # We're behind a lock, so avoid calling another locked method
                     _LOGGER.error("No cached contacts available - call get_contacts first")
-                    return False
+                    return False, "", ""
                     
                 # Check if the node exists
                 if node_name not in self._cached_contacts:
                     _LOGGER.error("Node %s not found in contacts", node_name)
-                    return False
-                    
+                    return False, "", ""
+                
+                # Get the node's public key
+                contact_pubkey = self._cached_contacts[node_name]["public_key"]
+                pubkey_prefix = bytes.fromhex(contact_pubkey)[:6]
+                
                 # Send the message using the MeshCore instance
-                _LOGGER.info(f"Sending message to {node_name}: {message}")
+                _LOGGER.info(f"Sending message to {node_name} (pubkey: {contact_pubkey[:12]}): {message}")
                 result = await self._mesh_core.send_msg(
-                    bytes.fromhex(self._cached_contacts[node_name]["public_key"])[:6],
+                    pubkey_prefix,
                     message
                 )
                 
                 if not result:
                     _LOGGER.error(f"Failed to send message to {node_name}")
-                    return False
+                    return False, "", ""
                     
                 # Wait for the message ACK with shorter timeout
                 _LOGGER.debug(f"Waiting for ACK from {node_name}...")
@@ -610,8 +618,144 @@ class MeshCoreAPI:
                 else:
                     _LOGGER.warning(f"No ACK received from {node_name}")
                 
-                return ack_received
+                # Return success flag, public key, and node name
+                return ack_received, contact_pubkey, node_name
                 
             except Exception as ex:
                 _LOGGER.error(f"Error sending message: {ex}")
+                return False, "", ""
+                
+    async def send_message_by_pubkey(self, pubkey_prefix: str, message: str) -> tuple[bool, str, str]:
+        """Send message to a node by public key prefix."""
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return False, "", ""
+            
+        async with self._device_lock:
+            try:
+                if not self._cached_contacts:
+                    _LOGGER.error("No cached contacts available - call get_contacts first")
+                    return False, "", ""
+                
+                # Find contact with matching pubkey prefix
+                found_name = None
+                full_pubkey = None
+                
+                for name, contact in self._cached_contacts.items():
+                    if "public_key" in contact and contact["public_key"].startswith(pubkey_prefix):
+                        found_name = name
+                        full_pubkey = contact["public_key"]
+                        break
+                
+                if not full_pubkey:
+                    _LOGGER.error(f"No contact found with pubkey prefix: {pubkey_prefix}")
+                    return False, "", ""
+                    
+                pubkey_bytes = bytes.fromhex(full_pubkey)[:6]
+                
+                _LOGGER.info(f"Sending message to {found_name or pubkey_prefix} (pubkey: {full_pubkey[:12]})")
+                result = await self._mesh_core.send_msg(
+                    pubkey_bytes,
+                    message
+                )
+                
+                if not result:
+                    _LOGGER.error(f"Failed to send message to pubkey {pubkey_prefix}")
+                    return False, "", ""
+                    
+                ack_received = await self._mesh_core.wait_ack(3)
+                
+                if ack_received:
+                    _LOGGER.info(f"Message acknowledged")
+                else:
+                    _LOGGER.warning(f"No ACK received")
+                
+                return ack_received, full_pubkey, found_name or ""
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending message by pubkey: {ex}")
+                return False, "", ""
+                
+    async def send_channel_message(self, channel_idx: int, message: str) -> bool:
+        """Send message to a specific channel by index."""
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return False
+            
+        async with self._device_lock:
+            try:
+                # Send the message to the channel using the MeshCore instance
+                _LOGGER.info(f"Sending message to channel {channel_idx}: {message}")
+                result = await self._mesh_core.send_chan_msg(channel_idx, message)
+                
+                if not result:
+                    _LOGGER.error(f"Failed to send message to channel {channel_idx}")
+                    return False
+                
+                # Note: Channel messages don't have ACKs like direct messages
+                _LOGGER.info(f"Successfully sent message to channel {channel_idx}")
+                return True
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending channel message: {ex}")
                 return False
+    
+    async def send_cli_command(self, command: str) -> dict:
+        """Send arbitrary CLI command to the node using mccli's next_cmd function.
+        
+        This provides direct access to the CLI command interface of the MeshCore device,
+        allowing advanced automation of node features not otherwise exposed via the API.
+        
+        Note: This is considered an advanced feature and relies on the internal CLI
+        implementation which may change in future firmware versions.
+        
+        Args:
+            command: The CLI command to send to the node (e.g., "get_bat", "info", etc.)
+            
+        Returns:
+            dict: Result of the command execution with success status
+        """
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return {"success": False, "error": "Not connected to MeshCore device"}
+            
+        async with self._device_lock:
+            try:
+                _LOGGER.info(f"Sending CLI command to MeshCore device: {command}")
+                
+                # Parse the command string into an array of arguments using shlex
+                # This properly handles quoted strings (e.g., "send f293ac "hello world"")
+                try:
+                    cmd_parts = shlex.split(command)
+                    _LOGGER.debug(f"Parsed command parts: {cmd_parts}")
+                    
+                    if not cmd_parts:
+                        _LOGGER.error("Empty command provided")
+                        return {"success": False, "error": "Empty command provided"}
+                except Exception as parse_ex:
+                    _LOGGER.error(f"Error parsing command: {parse_ex}")
+                    return {"success": False, "error": f"Error parsing command: {parse_ex}"}
+                
+                # Use the next_cmd function from mccli to process the command
+                try:
+                    # Process the command using the next_cmd function from mccli.py
+                    remaining_cmds = await next_cmd(self._mesh_core, cmd_parts)
+                    _LOGGER.info(f"CLI command executed, remaining commands: {remaining_cmds}")
+                    
+                    # If we're here, command was processed
+                    return {
+                        "success": True,
+                        "command": command,
+                        "remaining_cmds": remaining_cmds if remaining_cmds else []
+                    }
+                except Exception as cmd_ex:
+                    _LOGGER.error(f"Error executing CLI command '{command}': {cmd_ex}")
+                    return {
+                        "success": False, 
+                        "error": f"Error executing command: {cmd_ex}",
+                        "command": command
+                    }
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error sending CLI command: {ex}")
+                return {"success": False, "error": str(ex), "command": command}
