@@ -149,6 +149,19 @@ data:
   command: "set_txpower 15"
 ```
 
+Example sending commands to repeater
+```yaml
+action: meshcore.cli_command
+data:
+  command: cmd OldRepeaterName "set name Newname"
+```
+
+```yaml
+action: meshcore.cli_command
+data:
+  command: cmd Repeatername advert
+```
+
 Available commands include:
 - `get_bat` or `b` - Get battery level
 - `info` or `i` - Print node information
