@@ -487,8 +487,8 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
             }
             
             # Add location if available
-            if "lat" in contact and "lon" in contact:
-                contact_info["location"] = f"{contact.get('lat')}, {contact.get('lon')}"
+            if "latitude" in contact and "longitude" in contact:
+                contact_info["location"] = f"{contact.get('latitude')}, {contact.get('longitude')}"
                 
             contact_list.append(contact_info)
             

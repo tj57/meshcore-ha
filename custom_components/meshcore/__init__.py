@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from datetime import timedelta
 from typing import Any, Dict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.core import HomeAssistant
+from homeassistant.components.http import StaticPathConfig
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -36,7 +37,7 @@ from .logbook import handle_log_message
 _LOGGER = logging.getLogger(__name__)
 
 # List of platforms to set up
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.TEXT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MeshCore from a config entry."""
@@ -86,6 +87,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Set up all platforms for this device
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
+    # Register static paths for icons
+    should_cache = False
+    icons_path = Path(__file__).parent / "www" / "icons"
+    
+    await hass.http.async_register_static_paths([
+        StaticPathConfig("/api/meshcore/static", str(icons_path), should_cache)
+    ])
     
     # Set up services
     await async_setup_services(hass)
@@ -177,7 +186,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             if hasattr(self, "create_contact_diagnostic_binary_sensors"):
                 self.logger.info("Creating new diagnostic binary sensors for contacts")
                 self.create_contact_diagnostic_binary_sensors(latest_contacts)
-        
+                
         # Add the method to the class
         self._create_new_contact_entities = _create_new_contact_entities.__get__(self)
         

@@ -424,28 +424,41 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
         # Get the node type and set icon accordingly
         node_type = contact.get("type")
         
-        # Set different icons and names based on node type
+        # Set different icons and names based on node type and state
+        is_fresh = self.is_on
+        
         if node_type == NodeType.CLIENT:  # Client
-            self._attr_icon = "mdi:account"
+            self._attr_icon = "mdi:account" if is_fresh else "mdi:account-off"
             self._attr_name = f"{self.contact_name} (Client)"
+            icon_file = "client-green.svg" if is_fresh else "client.svg"
+            attributes["entity_picture"] = f"/api/meshcore/static/{icon_file}"
             attributes["node_type_str"] = "Client"
+            
         elif node_type == NodeType.REPEATER:  # Repeater
-            self._attr_icon = "mdi:radio-tower"
+            self._attr_icon = "mdi:radio-tower" if is_fresh else "mdi:radio-tower-off"
             self._attr_name = f"{self.contact_name} (Repeater)"
+            icon_file = "repeater-green.svg" if is_fresh else "repeater.svg"
+            attributes["entity_picture"] = f"/api/meshcore/static/{icon_file}"
             attributes["node_type_str"] = "Repeater"
+            
         else:
             # Default icon if type is unknown
             self._attr_icon = "mdi:help-network"
             self._attr_name = f"{self.contact_name} (Unknown)"
             attributes["node_type_str"] = "Unknown"
         
+
+        
         # Format last advertisement time if available
         if "last_advert" in attributes and attributes["last_advert"] > 0:
             last_advert_time = datetime.fromtimestamp(attributes["last_advert"])
             attributes["last_advert_formatted"] = last_advert_time.isoformat()
-            
+
         return attributes
-        
+    
+        """Return the icon for this contact."""
+        return self._attr_icon
+
     @property
     def is_on(self) -> bool:
         """Return True if the contact is fresh/active."""
