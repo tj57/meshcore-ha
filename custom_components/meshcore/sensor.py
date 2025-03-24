@@ -29,6 +29,7 @@ from .const import (
     CONF_REPEATER_SUBSCRIPTIONS,
     NodeType,
 )
+from .utils import get_node_type_str
 from .utils import (
     sanitize_name,
     format_entity_id,
@@ -481,7 +482,7 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
             # Extract the key info we want to display
             contact_info = {
                 "name": contact.get("adv_name", "Unknown"),
-                "type": "Repeater" if contact.get("type") == NodeType.REPEATER else "Client",
+                "type": get_node_type_str(contact.get("type")),
                 "public_key": contact.get("public_key", "")[:16] + "...",  # Truncate for display
                 "last_seen": contact.get("last_advert", 0),
             }

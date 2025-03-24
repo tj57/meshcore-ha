@@ -441,6 +441,13 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
             attributes["entity_picture"] = f"/api/meshcore/static/{icon_file}"
             attributes["node_type_str"] = "Repeater"
             
+        elif node_type == NodeType.ROOM_SERVER:  # Room Server
+            self._attr_icon = "mdi:forum" if is_fresh else "mdi:forum-outline"
+            self._attr_name = f"{self.contact_name} (Room Server)"
+            icon_file = "room_server-green.svg" if is_fresh else "room_server.svg"
+            attributes["entity_picture"] = f"/api/meshcore/static/{icon_file}"
+            attributes["node_type_str"] = "Room Server"
+            
         else:
             # Default icon if type is unknown
             self._attr_icon = "mdi:help-network"

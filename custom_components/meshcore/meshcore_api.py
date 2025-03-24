@@ -24,6 +24,7 @@ from .const import (
     DEFAULT_TCP_PORT,
     NodeType,
 )
+from .utils import get_node_type_str
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ class MeshCoreAPI:
                         
                         # Log details about each contact for debugging
                         for name, contact in contacts.items():
-                            node_type = "Client" if contact.get("type") == NodeType.CLIENT else "Repeater" if contact.get("type") == NodeType.REPEATER else "Unknown"
+                            node_type = get_node_type_str(contact.get("type"))
                             last_seen = contact.get("last_advert", 0)
                             # map to lat/lon if available
 
@@ -704,6 +705,98 @@ class MeshCoreAPI:
                 _LOGGER.error(f"Error sending channel message: {ex}")
                 return False
     
+    async def roomserver_ping(self, room_server_name: str) -> List[Dict[str, Any]]:
+        """Send a keepalive ping to a room server.
+        
+        This method sends a REQ_TYPE_KEEP_ALIVE request packet to the room server
+        which may trigger the room server to send any queued messages. It assumes 
+        the caller has already established any necessary authentication.
+        
+        Args:
+            room_server_name: The name of the room server to ping
+            
+        Returns:
+            List of message dictionaries retrieved from the room server
+        """
+        if not self._connected or not self._mesh_core:
+            _LOGGER.error("Not connected to MeshCore device")
+            return []
+            
+        async with self._device_lock:
+            try:
+                _LOGGER.info(f"Sending ping to room server: {room_server_name}")
+                
+                # Find the room server's public key
+                room_server_key = None
+                for name, contact in self._cached_contacts.items():
+                    if name == room_server_name:
+                        room_server_key = bytes.fromhex(contact["public_key"])[:6]
+                        _LOGGER.info(f"Found room server {room_server_name} with key: {room_server_key.hex()}")
+                        break
+                        
+                if not room_server_key:
+                    _LOGGER.error(f"Could not find public key for room server {room_server_name}")
+                    return []
+                
+                # Send the keep-alive packet
+                result = await self._mesh_core.send_roomserver_ping(room_server_key)
+                
+                if not result:
+                    _LOGGER.error(f"Failed to send ping to room server {room_server_name}")
+                    return []
+                
+                # Wait for and collect messages (responses should come in automatically)
+                messages = []
+                
+                # Give the room server a moment to respond
+                await asyncio.sleep(0.5)
+                
+                # Use get_new_messages approach to retrieve any queued messages
+                res = True
+                max_attempts = 10  # Limit attempts to avoid endless loop
+                attempt = 0
+                
+                while res and attempt < max_attempts:
+                    attempt += 1
+                    _LOGGER.debug(f"Attempting to retrieve message {attempt}/{max_attempts}")
+                    
+                    res = await self._mesh_core.get_msg()
+                    
+                    if res is False:
+                        _LOGGER.debug("No more messages (received False)")
+                        break
+                        
+                    if res:
+                        # Add context about the room server
+                        if isinstance(res, dict):
+                            res["room_server"] = room_server_name
+                            
+                            if "text" in res:
+                                text = res.get("text", "")
+                                pubkey_prefix = res.get("pubkey_prefix", "Unknown")
+                                _LOGGER.info(f"Retrieved message from room server {room_server_name}: '{text}' from {pubkey_prefix}")
+                            else:
+                                _LOGGER.info(f"Retrieved non-text message from room server {room_server_name}: {res}")
+                        else:
+                            _LOGGER.warning(f"Retrieved non-dict result from room server: {res}")
+                        
+                        # Add to our message list
+                        messages.append(res)
+                        
+                        # Add to cached messages
+                        self._cached_messages.append(res)
+                        # Keep only the latest 50 messages
+                        if len(self._cached_messages) > 50:
+                            self._cached_messages = self._cached_messages[-50:]
+                
+                _LOGGER.info(f"Retrieved {len(messages)} messages from room server {room_server_name}")
+                return messages
+                
+            except Exception as ex:
+                _LOGGER.error(f"Error pinging room server: {ex}")
+                _LOGGER.exception("Detailed exception")
+                return []
+
     async def send_cli_command(self, command: str) -> dict:
         """Send arbitrary CLI command to the node using mccli's next_cmd function.
         

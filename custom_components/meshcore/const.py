@@ -67,3 +67,4 @@ CONNECTION_TIMEOUT: Final = 10  # seconds
 class NodeType(IntEnum):
     CLIENT = 1
     REPEATER = 2
+    ROOM_SERVER = 3

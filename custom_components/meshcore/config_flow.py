@@ -492,10 +492,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 continue
                 
             contact_name = contact.get("adv_name", "")
-            contact_type = contact.get("type", NodeType.REPEATER)
+            contact_type = contact.get("type")
             
             # Type 2 indicates a repeater
-            if contact_name and contact_type == 2:
+            if contact_name and contact_type == NodeType.REPEATER or contact_type == NodeType.ROOM_SERVER:
                 repeater_contacts.append(contact_name)
                 
         return repeater_contacts
