@@ -273,7 +273,6 @@ async def async_setup_entry(
     
     # First, handle cleanup of removed repeater devices
     # Get registries
-    entity_registry = async_get_entity_registry(hass)
     device_registry = async_get_device_registry(hass)
     
     # Add repeater stat sensors if any repeaters are configured
@@ -340,21 +339,27 @@ class MeshCoreSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         
-        # Set unique ID using consistent format - filter out any empty parts
-        parts = [part for part in [coordinator.config_entry.entry_id, description.key] if part]
-        self._attr_unique_id = "_".join(parts)
-        
-        # Set name
-        self._attr_name = description.name
-        
         # Get raw device name for display purposes
         raw_device_name = coordinator.data.get('name', 'Node') if coordinator.data else 'Node'
-        
-        # Add public key to device name if available
         device_name = f"MeshCore {raw_device_name}"
+
+        public_key_short = ""
         if coordinator.data and "public_key" in coordinator.data:
-            public_key_short = coordinator.data["public_key"][:10]
+            public_key_short = coordinator.data["public_key"][:6]
             device_name = f"MeshCore {raw_device_name} ({public_key_short})"
+
+        # Set unique ID using consistent format - filter out any empty parts
+        parts = [part for part in [coordinator.config_entry.entry_id,  description.key, public_key_short] if part]
+        self._attr_unique_id = "_".join(parts)
+
+        self.entity_id = format_entity_id(
+            ENTITY_DOMAIN_SENSOR,
+            public_key_short,
+            description.key
+        )
+
+        # Set name
+        self._attr_name = description.name
         
         # Set device info
         self._attr_device_info = DeviceInfo(
@@ -502,8 +507,6 @@ class MeshCoreContactListSensor(CoordinatorEntity, SensorEntity):
         }
         
 
-
-
 class MeshCoreRepeaterSensor(CoordinatorEntity, SensorEntity):
     """Sensor for repeater statistics."""
     
@@ -524,28 +527,32 @@ class MeshCoreRepeaterSensor(CoordinatorEntity, SensorEntity):
         # Generate a unique device_id for this repeater
         self.device_id = f"{coordinator.config_entry.entry_id}_repeater_{safe_name}"
         
-        # Set unique ID
-        self._attr_unique_id = f"{self.device_id}_{description.key}"
-        
         # Set friendly name
         self._attr_name = description.name
+        
+        # Get repeater stats if available
+        repeater_stats = coordinator.data.get("repeater_stats", {}).get(repeater_name, {})
+
+        # Default device name, include public key if available
+        device_name = f"MeshCore Repeater: {repeater_name}"
+        public_key_short = ""
+        if repeater_stats and "public_key" in repeater_stats:
+            public_key_short = repeater_stats.get("public_key_short", repeater_stats["public_key"][:6])
+            device_name = f"MeshCore Repeater: {repeater_name} ({public_key_short})"
+        
+        # Set unique ID
+        self._attr_unique_id = f"{self.device_id}_{description.key}_{public_key_short}"
         
         # Set entity ID
         self.entity_id = format_entity_id(
             ENTITY_DOMAIN_SENSOR,
-            safe_name,
+            public_key_short,
             description.key
         )
-        
-        # Get repeater stats if available
-        repeater_stats = coordinator.data.get("repeater_stats", {}).get(repeater_name, {})
-        
-        # Default device name, include public key if available
-        device_name = f"MeshCore Repeater: {repeater_name}"
-        if repeater_stats and "public_key" in repeater_stats:
-            public_key_short = repeater_stats.get("public_key_short", repeater_stats["public_key"][:10])
-            device_name = f"MeshCore Repeater: {repeater_name} ({public_key_short})"
-        
+
+        print(f"entity ID: {self.entity_id}")
+
+
         # Set device info to create a separate device for this repeater
         device_info = {
             "identifiers": {(DOMAIN, self.device_id)},
