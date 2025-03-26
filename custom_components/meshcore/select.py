@@ -55,16 +55,16 @@ class MeshCoreChannelSelect(CoordinatorEntity, SelectEntity):
         self._attr_options = ["Channel 0", "Channel 1", "Channel 2", "Channel 3"]
         self._attr_current_option = self._attr_options[0]
         
-        # Set device info
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
-        )
+        # Don't associate with device to keep it off device page
+        # self._attr_device_info = DeviceInfo(
+        #     identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        # )
         
         # Set icon
         self._attr_icon = "mdi:tune-vertical"
         
         # Hide from device page
-        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_entity_registry_visible_default = False
     
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
@@ -102,16 +102,16 @@ class MeshCoreContactSelect(CoordinatorEntity, SelectEntity):
         self._attr_options = self._get_contact_options()
         self._attr_current_option = self._attr_options[0] if self._attr_options else "No contacts"
         
-        # Set device info
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
-        )
+        # Don't associate with device to keep it off device page
+        # self._attr_device_info = DeviceInfo(
+        #     identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        # )
         
         # Set icon
         self._attr_icon = "mdi:account-multiple"
         
         # Hide from device page
-        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_entity_registry_visible_default = False
     
     def _get_contact_options(self) -> List[str]:
         """Get the list of contact options from the coordinator."""
@@ -211,16 +211,16 @@ class MeshCoreRecipientTypeSelect(CoordinatorEntity, SelectEntity):
         self._attr_icon = "mdi:account-switch"
         
         # Hide from device page
-        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_entity_registry_visible_default = False
         
         # Available options
         self._attr_options = ["Channel", "Contact"]
         self._attr_current_option = "Channel"
         
-        # Set device info
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
-        )
+        # Don't associate with device to keep it off device page
+        # self._attr_device_info = DeviceInfo(
+        #     identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        # )
     
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""

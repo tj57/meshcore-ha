@@ -117,19 +117,20 @@ class MeshCoreAPI:
                 _LOGGER.error("Failed to initialize MeshCore connection")
                 return False
             
+            # todo: do we want to enable this?
             # Sync time to ensure proper authentication
-            try:
-                _LOGGER.info("Synchronizing device time...")
-                current_time = int(time.time())
-                time_result = await self._mesh_core.set_time(current_time)
-                if time_result:
-                    _LOGGER.info(f"Successfully synchronized device time to {current_time}")
-                    # Wait a moment for the time change to take effect
-                    await asyncio.sleep(0.2)
-                else:
-                    _LOGGER.warning("Time synchronization failed, authentication might not work properly")
-            except Exception as time_ex:
-                _LOGGER.warning(f"Error during time synchronization: {time_ex}")
+            # try:
+            #     _LOGGER.info("Synchronizing device time...")
+            #     current_time = int(time.time())
+            #     time_result = await self._mesh_core.set_time(current_time)
+            #     if time_result:
+            #         _LOGGER.info(f"Successfully synchronized device time to {current_time}")
+            #         # Wait a moment for the time change to take effect
+            #         await asyncio.sleep(0.2)
+            #     else:
+            #         _LOGGER.warning("Time synchronization failed, authentication might not work properly")
+            # except Exception as time_ex:
+            #     _LOGGER.warning(f"Error during time synchronization: {time_ex}")
                 
             self._connected = True
             _LOGGER.info("Successfully connected to MeshCore device")
