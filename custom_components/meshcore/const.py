@@ -27,6 +27,8 @@ DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 SERVICE_SEND_MESSAGE: Final = "send_message"
 SERVICE_SEND_CHANNEL_MESSAGE: Final = "send_channel_message"
 SERVICE_CLI_COMMAND: Final = "cli_command"
+SERVICE_MESSAGE_SCRIPT: Final = "send_ui_message"
+SERVICE_EXECUTE_CLI_COMMAND_UI: Final = "execute_cli_command_ui"
 ATTR_NODE_ID: Final = "node_id"
 ATTR_PUBKEY_PREFIX: Final = "pubkey_prefix"
 ATTR_CHANNEL_IDX: Final = "channel_idx"
@@ -65,3 +67,4 @@ CONNECTION_TIMEOUT: Final = 10  # seconds
 class NodeType(IntEnum):
     CLIENT = 1
     REPEATER = 2
+    ROOM_SERVER = 3

@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from datetime import timedelta
 from typing import Any, Dict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.core import HomeAssistant
+from homeassistant.components.http import StaticPathConfig
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -28,6 +29,7 @@ from .const import (
     CONF_MESSAGES_INTERVAL,
     DEFAULT_INFO_INTERVAL,
     DEFAULT_MESSAGES_INTERVAL,
+    NodeType,
 )
 from .meshcore_api import MeshCoreAPI
 from .services import async_setup_services, async_unload_services
@@ -36,7 +38,7 @@ from .logbook import handle_log_message
 _LOGGER = logging.getLogger(__name__)
 
 # List of platforms to set up
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.TEXT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MeshCore from a config entry."""
@@ -86,6 +88,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Set up all platforms for this device
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
+    # Register static paths for icons
+    should_cache = False
+    icons_path = Path(__file__).parent / "www" / "icons"
+    
+    await hass.http.async_register_static_paths([
+        StaticPathConfig("/api/meshcore/static", str(icons_path), should_cache)
+    ])
     
     # Set up services
     await async_setup_services(hass)
@@ -158,6 +168,10 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self._repeater_stats = {}
         self._repeater_login_times = {}
         
+        # Room server ping tracking - hourly interval
+        self._roomserver_ping_times = {}
+        self._roomserver_ping_interval = 3600  # 1 hour in seconds
+        
         # Helper method to create entities for new contacts
         async def _create_new_contact_entities(self, latest_contacts=None):
             """Create entities for newly discovered contacts."""
@@ -172,7 +186,12 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             if hasattr(self, "create_contact_diagnostic_sensors"):
                 self.logger.info("Creating new diagnostic sensor entities for contacts")
                 self.create_contact_diagnostic_sensors(latest_contacts)
-        
+                
+            # Contact diagnostic binary sensors
+            if hasattr(self, "create_contact_diagnostic_binary_sensors"):
+                self.logger.info("Creating new diagnostic binary sensors for contacts")
+                self.create_contact_diagnostic_binary_sensors(latest_contacts)
+                
         # Add the method to the class
         self._create_new_contact_entities = _create_new_contact_entities.__get__(self)
         
@@ -339,6 +358,28 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                             self._last_version_checks[repeater_name] = current_time
                     else:
                         self.logger.debug(f"Skipping version check for repeater {repeater_name} (no admin password provided)")
+                
+                    # Check if this repeater is also a room server
+                    is_roomserver = False
+                    for contact_name, contact in self.api._cached_contacts.items():
+                        if contact_name == repeater_name:
+                            # Check if node type indicates it's a room server
+                            if contact.get("type") == NodeType.ROOM_SERVER:
+                                is_roomserver = True
+                                break
+                    
+                    # If this is a room server, check if we need to send a ping
+                    if is_roomserver:
+                        last_ping_time = self._roomserver_ping_times.get(repeater_name, 0)
+                        time_since_ping = current_time - last_ping_time
+                        
+                        # Only ping if the room server ping interval has passed
+                        if time_since_ping >= self._roomserver_ping_interval:
+                            self.logger.info(f"Sending room server ping to {repeater_name} (after {time_since_ping:.1f}s)")
+                            await self.api.roomserver_ping(repeater_name)
+                            self._roomserver_ping_times[repeater_name] = current_time
+                        else:
+                            self.logger.debug(f"Skipping room server ping to {repeater_name} - last ping was {time_since_ping:.1f}s ago")
                 else:
                     self.logger.error(f"Failed to login to repeater: {repeater_name} - using password: {'yes' if password else 'no (guest)'}")
                     # Update timestamp even on failure to avoid hammering with login attempts

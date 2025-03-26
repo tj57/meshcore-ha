@@ -686,6 +686,23 @@ class MeshCore:
         self.status_resp = asyncio.Future()
         data = b"\x1b" + dst
         return await self.send(data)
+        
+    async def send_roomserver_ping(self, dst):
+        """Send a ping to a room server to maintain connection.
+        
+        Args:
+            dst: The room server destination public key (first 6 bytes)
+            
+        Returns:
+            Result of the send operation
+        """
+        timestamp = (await self.get_time()).to_bytes(4, 'little')
+        
+        # We do not pass a since_timestamp and assume the server knows when we were last here
+        data = b"\x19\x00\x00" + timestamp + dst
+        
+        self.log_debug(f"Sending ping to room server {dst.hex()}")
+        return await self.send(data)
 
     async def wait_status(self, timeout = 5):
         try :
@@ -831,6 +848,35 @@ async def next_cmd(mc, cmds):
             await mc.ensure_contacts()
             print(await mc.send_cmd(bytes.fromhex(mc.contacts[cmds[1]]["public_key"])[0:6],
                                     cmds[2]))
+        case "roomserver":
+            if len(cmds) < 3:
+                printerr("roomserver command requires at least 2 arguments: action and room server name")
+                return cmds[1:] if len(cmds) > 1 else []
+                
+            action = cmds[1]
+            room_server_name = cmds[2]
+            argnum = 2
+            
+            match action:
+                case "ping":
+                    await mc.ensure_contacts()
+                    if room_server_name not in mc.contacts:
+                        printerr(f"Room server {room_server_name} not found in contacts")
+                        return cmds[3:] if len(cmds) > 3 else []
+                    
+                    room_server_key = bytes.fromhex(mc.contacts[room_server_name]["public_key"])[0:6]
+                    
+                    # Use the dedicated function to send the ping
+                    printerr(f"Sending ping to room server {room_server_name}")
+                    result = await mc.send_roomserver_ping(room_server_key)
+                    
+                    if not result:
+                        printerr(f"Failed to send request to room server {room_server_name}")
+                        return cmds[3:] if len(cmds) > 3 else []
+                
+                case _:
+                    printerr(f"Unknown roomserver action: {action}")
+                    argnum = 1
         case "login" | "l" | "[[" :
             argnum = 2
             await mc.ensure_contacts()

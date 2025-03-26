@@ -19,6 +19,7 @@ from .utils import (
     get_contact_entity_id,
     find_coordinator_with_device_name,
     sanitize_name,
+    get_node_type_str,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +72,12 @@ def async_describe_events(
             sender_display = data.get("sender_display", sender_name)
             description = f"{channel_display} {sender_display}: {message}"
             icon = "mdi:message-bulleted"
+        elif data.get("type") == "PRIV" and data.get("signature"):
+            # Handle room server messages
+            room_server_name = data.get("room_server_name", "Room Server")
+            client_name = data.get("client_name", data.get("signature", "Unknown Client"))
+            description = f"<{room_server_name}> {client_name}: {message}"
+            icon = "mdi:message-processing"
         else:
             pub_key_short = data.get('client_public_key', '')[:6] if data.get('client_public_key') else ''
             description = message
@@ -157,6 +164,10 @@ def normalize_message_data(message_data: Dict[str, Any]) -> Dict[str, Any]:
         "timestamp": datetime.now().isoformat(),
     }
     
+    # Add signature if present (for room server messages)
+    if "signature" in message_data:
+        normalized["signature"] = message_data["signature"]
+        
     # Determine message type based on input data
     message_type = MESSAGE_TYPE_DIRECT
     
@@ -174,6 +185,7 @@ def normalize_message_data(message_data: Dict[str, Any]) -> Dict[str, Any]:
         message_type = MESSAGE_TYPE_CHANNEL
         
     normalized["message_type"] = message_type
+    normalized["type"] = message_data.get("type", "")
     _LOGGER.info(f"Final message type: {message_type}, channel value: {normalized['channel']}")
     
     return normalized
@@ -197,19 +209,56 @@ def resolve_sender_info(hass: HomeAssistant, message: Dict[str, Any]) -> Dict[st
     
     # For incoming messages, look up the sender
     if not outgoing and sender_key:
-        for contact in contacts:
-            if not isinstance(contact, dict):
-                continue
+        # Special handling for PRIV messages with signature (room server messages)
+        if message.get("type") == "PRIV" and message.get("signature"):
+            # For PRIV messages with signature, pubkey_prefix is the room server's key
+            room_server_found = False
+            for contact in contacts:
+                if not isinstance(contact, dict):
+                    continue
+                    
+                # Check if this contact is the room server
+                if contact.get("public_key", "").startswith(sender_key):
+                    message["room_server_name"] = contact.get("adv_name", "Room Server")
+                    message["contact_public_key"] = contact.get("public_key")
+                    room_server_found = True
+                    break
+                    
+            # If room server not found, use a generic name with the prefix
+            if not room_server_found:
+                message["room_server_name"] = f"Room Server ({sender_key[:6]})"
                 
-            # Check if this contact is the sender
-            if isinstance(sender_key, (bytes, bytearray)) and contact.get("public_key", "").startswith(sender_key.hex()):
-                message["sender_name"] = contact.get("adv_name", "Unknown")
-                message["contact_public_key"] = contact.get("public_key")
-                break
-            elif isinstance(sender_key, str) and contact.get("public_key", "").startswith(sender_key):
-                message["sender_name"] = contact.get("adv_name", "Unknown")
-                message["contact_public_key"] = contact.get("public_key")
-                break
+            # Try to look up the client name from contacts using signature as the key
+            client_signature = message.get("signature", "")
+            client_found = False
+            
+            if client_signature:
+                for contact in contacts:
+                    if not isinstance(contact, dict):
+                        continue
+                        
+                    # Check if this contact's key prefix matches the signature
+                    if contact.get("public_key", "").startswith(client_signature):
+                        message["sender_name"] = contact.get("adv_name", "Unknown")
+                        client_found = True
+                        break
+            
+            # If no match found, just use the signature as client name
+            if not client_found:
+                message["sender_name"] = message.get("signature", "Unknown Client")
+            
+            _LOGGER.info(f"Room server message from {message['room_server_name']}, sender: {message['sender_name']}")
+        else:
+            # Standard direct message handling
+            for contact in contacts:
+                if not isinstance(contact, dict):
+                    continue
+                    
+                # Check if this contact is the sender
+                if contact.get("public_key", "").startswith(sender_key):
+                    message["sender_name"] = contact.get("adv_name", "Unknown")
+                    message["contact_public_key"] = contact.get("public_key")
+                    break
     
     # For outgoing messages, look up the receiver
     elif outgoing and isinstance(receiver_name, str):
@@ -324,6 +373,31 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
         # Fire channel message event
         hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, event_data)
     
+    # Handle PRIV messages with signature (room server messages)
+    elif message.get("type") == "PRIV" and message.get("signature"):
+        # Include room server and client name for display
+        if message.get("room_server_name"):
+            event_data["room_server_name"] = message["room_server_name"]
+        if message.get("signature"):
+            event_data["signature"] = message["signature"]
+            
+        # Use the room server pubkey for entity ID generation
+        # We need a consistent entity ID, so use the same method as for contacts
+        if message.get("contact_public_key"):
+            # Use first 12 characters of the full public key if available
+            pubkey_for_entity = message.get("contact_public_key", "")[:12]
+        else:
+            # Fall back to the pubkey_prefix from the message
+            pubkey_for_entity = message.get("sender_key", "")
+            
+        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pubkey_for_entity)
+        event_data["entity_id"] = entity_id
+            
+        _LOGGER.info(f"Firing room server message event with entity_id: {entity_id}, room server: {message.get('room_server_name')}, client: {message.get('client_name')}")
+            
+        # Fire as a regular message event
+        hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, event_data)
+    
     # Handle direct messages
     elif message["message_type"] == MESSAGE_TYPE_DIRECT:
         # For outgoing messages, use the receiver name
@@ -419,7 +493,7 @@ def log_contact_seen(hass: HomeAssistant, contact_data: Dict[str, Any]) -> None:
     public_key = contact_data.get("public_key", "")
     
     # Determine contact type description
-    contact_type = "Client" if node_type == NodeType.CLIENT else "Repeater" if node_type == NodeType.REPEATER else "Node"
+    contact_type = get_node_type_str(node_type)
     
     # Create event data for logbook
     contact_event_data = {

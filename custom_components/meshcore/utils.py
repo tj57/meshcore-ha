@@ -10,9 +10,22 @@ from .const import (
     DOMAIN,
     MESSAGES_SUFFIX,
     CHANNEL_PREFIX,
+    NodeType,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def get_node_type_str(node_type: str | None) -> str:
+    """Convert NodeType to a human-readable string."""
+    if node_type == NodeType.CLIENT:
+        return "Client"
+    elif node_type == NodeType.REPEATER:
+        return "Repeater"
+    elif node_type == NodeType.ROOM_SERVER:
+        return "Room Server"
+    else:
+        return "Unknown"
 
 
 def sanitize_name(name: str, replace_hyphens: bool = True) -> str:
