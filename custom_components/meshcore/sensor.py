@@ -349,13 +349,14 @@ class MeshCoreSensor(CoordinatorEntity, SensorEntity):
             device_name = f"MeshCore {raw_device_name} ({public_key_short})"
 
         # Set unique ID using consistent format - filter out any empty parts
-        parts = [part for part in [coordinator.config_entry.entry_id,  description.key, public_key_short] if part]
+        parts = [part for part in [coordinator.config_entry.entry_id,  description.key, public_key_short, raw_device_name] if part]
         self._attr_unique_id = "_".join(parts)
 
         self.entity_id = format_entity_id(
             ENTITY_DOMAIN_SENSOR,
             public_key_short,
-            description.key
+            description.key,
+            raw_device_name
         )
 
         # Set name
@@ -541,13 +542,14 @@ class MeshCoreRepeaterSensor(CoordinatorEntity, SensorEntity):
             device_name = f"MeshCore Repeater: {repeater_name} ({public_key_short})"
         
         # Set unique ID
-        self._attr_unique_id = f"{self.device_id}_{description.key}_{public_key_short}"
+        self._attr_unique_id = f"{self.device_id}_{description.key}_{public_key_short}_{repeater_name}"
         
         # Set entity ID
         self.entity_id = format_entity_id(
             ENTITY_DOMAIN_SENSOR,
             public_key_short,
-            description.key
+            description.key,
+            repeater_name
         )
 
         print(f"entity ID: {self.entity_id}")
