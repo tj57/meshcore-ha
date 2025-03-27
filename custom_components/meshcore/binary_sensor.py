@@ -25,14 +25,10 @@ from .const import (
     NodeType,
 )
 from .utils import (
+    get_device_key,
     sanitize_name,
-    get_device_name,
     format_entity_id,
     extract_channel_idx,
-)
-from .logbook import (
-    EVENT_MESHCORE_MESSAGE,
-    EVENT_MESHCORE_CLIENT_MESSAGE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -236,17 +232,17 @@ class MeshCoreMessageEntity(CoordinatorEntity, BinarySensorEntity):
         self.public_key = public_key
         
         # Get device name for unique ID and entity_id
-        device_name = get_device_name(coordinator)
+        device_key = get_device_key(coordinator)
         
-        # Set unique ID with device name included - ensure consistent format with no empty parts
-        parts = [part for part in [coordinator.config_entry.entry_id, device_name, entity_key, MESSAGES_SUFFIX] if part]
+        # Set unique ID with device key included - ensure consistent format with no empty parts
+        parts = [part for part in [coordinator.config_entry.entry_id, device_key[:6], entity_key[:6], MESSAGES_SUFFIX] if part]
         self._attr_unique_id = "_".join(parts)
         
         # Manually set entity_id to match logbook entity_id format
         self.entity_id = format_entity_id(
             ENTITY_DOMAIN_BINARY_SENSOR, 
-            device_name, 
-            entity_key, 
+            device_key[:6], 
+            entity_key[:6], 
             MESSAGES_SUFFIX
         )
         

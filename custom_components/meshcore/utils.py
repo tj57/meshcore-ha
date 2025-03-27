@@ -42,6 +42,12 @@ def sanitize_name(name: str, replace_hyphens: bool = True) -> str:
         safe_name = safe_name.replace("-", "_")
     return safe_name.replace("__", "_")
 
+def get_device_key(coordinator: DataUpdateCoordinator, default: str = "") -> str:
+    """Get the sanitized device name from coordinator data."""
+    if not coordinator or not hasattr(coordinator, "data") or not coordinator.data:
+        return sanitize_name(default)
+        
+    return coordinator.data.get("public_key", default)
 
 def get_device_name(coordinator: DataUpdateCoordinator, default: str = DEFAULT_DEVICE_NAME) -> str:
     """Get the sanitized device name from coordinator data."""

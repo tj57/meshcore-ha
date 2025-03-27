@@ -45,7 +45,7 @@ ENTITY_DOMAIN_SENSOR: Final = "sensor"
 DEFAULT_DEVICE_NAME: Final = "meshcore"
 MESSAGES_SUFFIX: Final = "messages"
 CONTACT_SUFFIX: Final = "contact"
-CHANNEL_PREFIX: Final = "channel_"
+CHANNEL_PREFIX: Final = "ch_"
 
 # Repeater subscription constants
 CONF_REPEATER_SUBSCRIPTIONS: Final = "repeater_subscriptions"

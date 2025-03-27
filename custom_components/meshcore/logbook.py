@@ -18,6 +18,7 @@ from .utils import (
     get_channel_entity_id,
     get_contact_entity_id,
     find_coordinator_with_device_name,
+    get_device_key,
     sanitize_name,
     get_node_type_str,
 )
@@ -308,7 +309,8 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
         return
     
     # Find the coordinator and get the device name
-    _, device_name = find_coordinator_with_device_name(hass.data)
+    coordinator, _ = find_coordinator_with_device_name(hass.data)
+    device_key = get_device_key(coordinator)
     
     # Process message through the pipeline
     message = normalize_message_data(message_data)
@@ -358,7 +360,7 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
             event_data["channel"] = "public"
 
         # Get the correct entity_id for this channel
-        entity_id = get_channel_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, channel_idx)
+        entity_id = get_channel_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_key[:6], channel_idx)
         event_data["entity_id"] = entity_id
         
         # Just store the plain message text
@@ -390,7 +392,7 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
             # Fall back to the pubkey_prefix from the message
             pubkey_for_entity = message.get("sender_key", "")
             
-        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pubkey_for_entity)
+        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_key[:6], pubkey_for_entity[:6])
         event_data["entity_id"] = entity_id
             
         _LOGGER.info(f"Firing room server message event with entity_id: {entity_id}, room server: {message.get('room_server_name')}, client: {message.get('client_name')}")
@@ -426,7 +428,7 @@ def handle_log_message(hass: HomeAssistant, message_data: Dict[str, Any]) -> Non
         event_data["client_name"] = client_name
         
         # Add client-specific entity ID - critical for message history
-        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_name, pub_key[:12])
+        entity_id = get_contact_entity_id(ENTITY_DOMAIN_BINARY_SENSOR, device_key[:6], pub_key[:6])
         event_data["entity_id"] = entity_id
         
         # Add is_incoming flag for client messages
