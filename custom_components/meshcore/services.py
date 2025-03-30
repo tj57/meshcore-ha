@@ -3,9 +3,11 @@ import logging
 import time
 import voluptuous as vol
 import json
+from typing import Any, Dict, Optional
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.const import MAJOR_VERSION
 
 from .const import (
     ATTR_PUBKEY_PREFIX,
@@ -286,7 +288,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 return
                 
             # Create channel message service call
-            channel_call = ServiceCall(
+            channel_call = create_service_call(
                 DOMAIN, 
                 SERVICE_SEND_CHANNEL_MESSAGE, 
                 {"channel_idx": channel_idx, "message": message, "entry_id": entry_id}
@@ -309,7 +311,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 return
                 
             # Create contact message service call
-            contact_call = ServiceCall(
+            contact_call = create_service_call(
                 DOMAIN, 
                 SERVICE_SEND_MESSAGE, 
                 {"pubkey_prefix": pubkey_prefix, "message": message, "entry_id": entry_id}
@@ -379,7 +381,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             return
         
         # Create CLI command service call
-        cli_call = ServiceCall(
+        cli_call = create_service_call(
             DOMAIN, 
             SERVICE_CLI_COMMAND, 
             {"command": command, "entry_id": entry_id}
@@ -423,3 +425,51 @@ async def async_unload_services(hass: HomeAssistant) -> None:
         
     if hass.services.has_service(DOMAIN, SERVICE_EXECUTE_CLI_COMMAND_UI):
         hass.services.async_remove(DOMAIN, SERVICE_EXECUTE_CLI_COMMAND_UI)
+
+
+def create_service_call(
+    domain: str,
+    service: str,
+    data: Optional[Dict[str, Any]] = None,
+    hass: Optional[HomeAssistant] = None
+) -> ServiceCall:
+    """Returns a ServiceCall instance compatible with the current Home Assistant version.
+    
+    In Home Assistant 2025.x.x and newer, ServiceCall requires a 'hass' parameter
+    as the first argument, which was a breaking change from 2024.x.x. This factory
+    function creates the appropriate instance based on the detected version.
+    
+    Args:
+        domain: Service domain name
+        service: Service name to call
+        data: Dictionary containing service call parameters
+        hass: HomeAssistant instance, required for 2025.x.x+ but ignored in 2024.x.x
+        
+    Returns:
+        ServiceCall: Properly configured service call instance for the current HA version
+    
+    Example:
+        # Create a service call that works across HA versions
+        service_call = create_service_call(
+            domain="light",
+            service="turn_on",
+            data={"entity_id": "light.living_room", "brightness": 255},
+            hass=hass  # Always pass this, will be used only when needed
+        )
+    """
+    # Create the service call instance based on the detected HA version
+    if MAJOR_VERSION >= 2025:
+        _LOGGER.debug("Creating ServiceCall with hass parameter (2025.x.x+ format)")
+        return ServiceCall(
+            hass=hass,
+            domain=domain,
+            service=service,
+            data=data or {}
+        )
+    else:
+        _LOGGER.debug("Creating ServiceCall without hass parameter (2024.x.x format)")
+        return ServiceCall(
+            domain=domain,
+            service=service,
+            data=data or {}
+        )
