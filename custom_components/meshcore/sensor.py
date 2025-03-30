@@ -171,6 +171,7 @@ REPEATER_SENSORS = [
         name="Uptime",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement="min",
+        suggested_unit_of_measurement="d",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:clock",
     ),
