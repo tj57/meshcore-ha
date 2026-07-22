@@ -110,7 +110,7 @@ The recommended card puts the input and the **button entities** in a single
 `entities` card (compact rows) so you don't get the oversized `button` *card*,
 then renders the transcript with a markdown card:
 
-```yaml
+````yaml
 type: vertical-stack
 cards:
   - type: entities
@@ -126,7 +126,7 @@ cards:
       ```
       {{ state_attr('sensor.YOUR_NODE_cli_console', 'transcript') }}
       ```
-```
+````
 
 Notes:
 - Replace `YOUR_NODE` with your node's prefix (e.g. `meshcore_49d715_…`) — find
