@@ -332,6 +332,37 @@ action:
       message: "Battery: {{ (trigger.event.data.payload.level / 1000) | round(2) }}V"
 ```
 
+## CLI Console Events
+
+### meshcore_cli_response
+Fired after an `execute_command` (or `execute_command_ui`) call made with
+`record_to_console: true` completes. Use it to react to CLI output in
+automations without polling the console sensor.
+
+**Event data:**
+
+- `command` - The command string that was run
+- `response` - The normalized response (see [execute_command Response Shapes](#execute_command-response-shapes)), or `null` on failure
+- `is_error` - `true` when the command failed or returned no response
+- `entry_id` - The config entry the command ran against (may be `null`)
+- `timestamp` - Unix epoch seconds when the response was recorded
+
+**Example:**
+```yaml
+alias: Notify on CLI error
+trigger:
+  - platform: event
+    event_type: meshcore_cli_response
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.is_error }}"
+action:
+  - service: persistent_notification.create
+    data:
+      title: "MeshCore CLI error"
+      message: "Command '{{ trigger.event.data.command }}' failed"
+```
+
 ## Connection Events
 
 ### meshcore_connected

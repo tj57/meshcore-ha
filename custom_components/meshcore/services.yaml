@@ -114,6 +114,17 @@ execute_command:
       example: "abc123def456"
       selector:
         text:
+    record_to_console:
+      name: Record to CLI Console
+      description: >-
+        Record the command and its response to the CLI Console transcript and fire the
+        meshcore_cli_response event, so the output is visible in the UI. Requires the
+        CLI Console to be enabled in Global Settings. Defaults to false.
+      required: false
+      example: true
+      default: false
+      selector:
+        boolean:
 
 execute_command_ui:
   name: Execute Command from UI
@@ -125,6 +136,30 @@ execute_command_ui:
     entry_id:
       name: Config Entry ID
       description: The config entry ID if you have multiple MeshCore devices. Leave empty to use the first available device.
+      required: false
+      example: "abc123def456"
+      selector:
+        text:
+    record_to_console:
+      name: Record to CLI Console
+      description: >-
+        Record the command and its response to the CLI Console transcript and fire the
+        meshcore_cli_response event, so the output is visible in the UI. Requires the
+        CLI Console to be enabled in Global Settings. Defaults to false.
+      required: false
+      example: true
+      default: false
+      selector:
+        boolean:
+
+cli_console_clear:
+  name: Clear CLI Console
+  description: >-
+    Clear the CLI Console transcript. With no entry_id, clears every configured device's console.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: The config entry ID if you have multiple MeshCore devices. Leave empty to clear all.
       required: false
       example: "abc123def456"
       selector:
