@@ -340,34 +340,44 @@ clear_discovered_contacts:
       selector:
         text:
 
-send_mcrpc:
-  name: Send mcRPC
+request:
+  name: Request
   description: >-
-    Send an mcRPC request over a MeshCore channel (optional extension).
-    Enable mcRPC under Configure → Global Settings first.
-    The parsed reply is delivered as a meshcore_mcrpc_response event.
+    Ask a mesh node for data (ping, gps, battery, status, discover, …).
+    Waits for the reply by default — use response_variable in scripts/automations.
+    Enable under Configure → Global Settings first.
   fields:
     target:
       name: Target
-      description: Node name (e.g. tracker). Ignored when Broadcast is enabled.
+      description: Node name (e.g. tracker). Not required when Broadcast is enabled.
       required: false
       example: "tracker"
       selector:
         text:
     command:
       name: Command
-      description: mcRPC command (ping, status, discover, gps, battery, caps, help, …).
+      description: Command to run (ping, status, discover, gps, battery, caps, help, …).
       required: true
-      example: "ping"
+      example: "gps"
       selector:
         text:
-    arguments:
+    args:
       name: Arguments
-      description: Optional arguments (space-separated string or list). For GPS use start, stop, once, stream, status.
+      description: Optional arguments (e.g. once, start, stop for GPS).
       required: false
       example: "once"
       selector:
         text:
+    timeout:
+      name: Timeout
+      description: Seconds to wait for a reply (default from Global Settings).
+      required: false
+      example: 15
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: seconds
     request_id:
       name: Request ID
       description: Optional correlation id. Auto-assigned when omitted.
@@ -376,35 +386,202 @@ send_mcrpc:
         number:
           min: 0
           mode: box
-    timeout:
-      name: Timeout
-      description: Seconds to wait before firing a timeout response event.
-      required: false
-      example: 15
-      selector:
-        number:
-          min: 1
-          max: 120
-          mode: box
     broadcast:
       name: Broadcast
-      description: Address all nodes (target becomes "all").
+      description: Send to all nodes (same as meshcore.broadcast).
       required: false
       default: false
       selector:
         boolean:
-    channel_idx:
-      name: Channel Index
-      description: Channel to send on (defaults to mcRPC default channel from settings).
+    channel:
+      name: Channel
+      description: Channel index (defaults to Global Settings).
       required: false
       selector:
         number:
           min: 0
           max: 255
           mode: box
+    wait:
+      name: Wait for reply
+      description: When true (default), the service returns the parsed response for response_variable.
+      required: false
+      default: true
+      selector:
+        boolean:
     entry_id:
       name: Config Entry ID
       description: Config entry ID when multiple MeshCore devices are configured.
+      required: false
+      selector:
+        text:
+
+broadcast:
+  name: Broadcast
+  description: >-
+    Send a command to all listening nodes (discover, ping, …).
+    Returns the first correlated reply when Wait is enabled.
+  fields:
+    command:
+      name: Command
+      description: Command to broadcast.
+      required: true
+      example: "discover"
+      selector:
+        text:
+    args:
+      name: Arguments
+      description: Optional arguments.
+      required: false
+      selector:
+        text:
+    timeout:
+      name: Timeout
+      description: Seconds to wait for a reply.
+      required: false
+      example: 15
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: seconds
+    channel:
+      name: Channel
+      description: Channel index.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    wait:
+      name: Wait for reply
+      description: Wait for the first reply (default true).
+      required: false
+      default: true
+      selector:
+        boolean:
+    entry_id:
+      name: Config Entry ID
+      required: false
+      selector:
+        text:
+
+raw:
+  name: Raw message
+  description: >-
+    Advanced — send arbitrary channel text. Prefer meshcore.request for normal use.
+  fields:
+    message:
+      name: Message
+      description: Exact channel text to send (e.g. "all discover" or "tracker#7 gps once").
+      required: true
+      example: "all discover"
+      selector:
+        text:
+    timeout:
+      name: Timeout
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: seconds
+    channel:
+      name: Channel
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    wait:
+      name: Wait for reply
+      required: false
+      default: false
+      selector:
+        boolean:
+    entry_id:
+      name: Config Entry ID
+      required: false
+      selector:
+        text:
+
+list_nodes:
+  name: List cached nodes
+  description: >-
+    Return the discover / capability cache built from previous discover and caps replies.
+    Does not send mesh traffic.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      required: false
+      selector:
+        text:
+
+has_capability:
+  name: Has capability
+  description: >-
+    Check whether a cached node advertised a capability (e.g. gps, battery).
+    Populate the cache first with meshcore.broadcast command discover (or caps).
+  fields:
+    target:
+      name: Target
+      description: Node name from the capability cache.
+      required: true
+      example: "tracker"
+      selector:
+        text:
+    capability:
+      name: Capability
+      description: Capability name (gps, battery, …).
+      required: true
+      example: "gps"
+      selector:
+        text:
+    entry_id:
+      name: Config Entry ID
+      required: false
+      selector:
+        text:
+
+send_mcrpc:
+  name: Send mcRPC (Advanced / Debug)
+  description: >-
+    Advanced debug alias for meshcore.raw — send arbitrary channel text.
+    Prefer meshcore.request for automations.
+  fields:
+    message:
+      name: Message
+      description: Exact channel text to send.
+      required: true
+      example: "all discover"
+      selector:
+        text:
+    timeout:
+      name: Timeout
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: seconds
+    channel:
+      name: Channel
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    wait:
+      name: Wait for reply
+      required: false
+      default: false
+      selector:
+        boolean:
+    entry_id:
+      name: Config Entry ID
       required: false
       selector:
         text:
