@@ -72,6 +72,14 @@ from .const import (
     CONF_AUTO_CLEANUP_STALE_NEIGHBORS,
     CONF_STALE_NEIGHBOR_DAYS,
     DEFAULT_STALE_NEIGHBOR_DAYS,
+    CONF_MCRPC_ENABLED,
+    CONF_MCRPC_TIMEOUT,
+    CONF_MCRPC_CHANNEL,
+    CONF_MCRPC_EVENT_BRIDGE,
+    CONF_MCRPC_DEBUG,
+    CONF_MCRPC_ENTITY_BRIDGE,
+    DEFAULT_MCRPC_TIMEOUT,
+    DEFAULT_MCRPC_CHANNEL,
     CONF_MQTT_IATA,
     CONF_MQTT_TOKEN_TTL_SECONDS,
     CONF_MQTT_BROKERS,
@@ -939,6 +947,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             new_data[CONF_FLOOD_SCOPES] = user_input.get(CONF_FLOOD_SCOPES, "")
             new_data[CONF_AUTO_CLEANUP_STALE_NEIGHBORS] = user_input[CONF_AUTO_CLEANUP_STALE_NEIGHBORS]
             new_data[CONF_STALE_NEIGHBOR_DAYS] = user_input[CONF_STALE_NEIGHBOR_DAYS]
+            new_data[CONF_MCRPC_ENABLED] = user_input[CONF_MCRPC_ENABLED]
+            new_data[CONF_MCRPC_TIMEOUT] = user_input[CONF_MCRPC_TIMEOUT]
+            new_data[CONF_MCRPC_CHANNEL] = user_input[CONF_MCRPC_CHANNEL]
+            new_data[CONF_MCRPC_EVENT_BRIDGE] = user_input[CONF_MCRPC_EVENT_BRIDGE]
+            new_data[CONF_MCRPC_DEBUG] = user_input[CONF_MCRPC_DEBUG]
+            new_data[CONF_MCRPC_ENTITY_BRIDGE] = user_input[CONF_MCRPC_ENTITY_BRIDGE]
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data) # type: ignore
 
             if new_data[CONF_LIMIT_DISCOVERED_CONTACTS]:
@@ -965,6 +979,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         current_auto_cleanup_neighbors = self.config_entry.data.get(CONF_AUTO_CLEANUP_STALE_NEIGHBORS, False)
         current_stale_neighbor_days = self.config_entry.data.get(CONF_STALE_NEIGHBOR_DAYS, DEFAULT_STALE_NEIGHBOR_DAYS)
         current_flood_scopes = self.config_entry.data.get(CONF_FLOOD_SCOPES, "")
+        current_mcrpc_enabled = self.config_entry.data.get(CONF_MCRPC_ENABLED, False)
+        current_mcrpc_timeout = self.config_entry.data.get(CONF_MCRPC_TIMEOUT, DEFAULT_MCRPC_TIMEOUT)
+        current_mcrpc_channel = self.config_entry.data.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL)
+        current_mcrpc_event_bridge = self.config_entry.data.get(CONF_MCRPC_EVENT_BRIDGE, True)
+        current_mcrpc_debug = self.config_entry.data.get(CONF_MCRPC_DEBUG, False)
+        current_mcrpc_entity_bridge = self.config_entry.data.get(CONF_MCRPC_ENTITY_BRIDGE, False)
 
         return self.async_show_form(
             step_id="global_settings",
@@ -984,6 +1004,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_FLOOD_SCOPES, default=current_flood_scopes): str,
                 vol.Optional(CONF_AUTO_CLEANUP_STALE_NEIGHBORS, default=current_auto_cleanup_neighbors): cv.boolean,
                 vol.Optional(CONF_STALE_NEIGHBOR_DAYS, default=current_stale_neighbor_days): vol.All(cv.positive_int, vol.Range(min=1, max=365)),
+                vol.Optional(CONF_MCRPC_ENABLED, default=current_mcrpc_enabled): cv.boolean,
+                vol.Optional(CONF_MCRPC_TIMEOUT, default=current_mcrpc_timeout): vol.All(cv.positive_int, vol.Range(min=1, max=120)),
+                vol.Optional(CONF_MCRPC_CHANNEL, default=current_mcrpc_channel): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+                vol.Optional(CONF_MCRPC_EVENT_BRIDGE, default=current_mcrpc_event_bridge): cv.boolean,
+                vol.Optional(CONF_MCRPC_DEBUG, default=current_mcrpc_debug): cv.boolean,
+                vol.Optional(CONF_MCRPC_ENTITY_BRIDGE, default=current_mcrpc_entity_bridge): cv.boolean,
             }),
         )
 
