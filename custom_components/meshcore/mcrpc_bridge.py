@@ -32,6 +32,7 @@ from .const import (
 from .logbook import EVENT_MESHCORE_MESSAGE
 from .mcrpc_device_mapper import NodeDeviceMapper
 from .mcrpc_node_registry import NodeRegistry
+from .mcrpc_policy import McRpcPolicy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +76,20 @@ class McRpcBridge:
             "rx_count": 0,
             "parse_ok": 0,
             "parse_unknown": 0,
+            "parser_errors": 0,
             "timeouts": 0,
             "errors": 0,
+            "denied": 0,
+            "answered": 0,
+            "rtt_sum_ms": 0.0,
+            "rtt_count": 0,
+            "tx_wait_expected": 0,
+            "rx_matched": 0,
             "last_tx": None,
             "last_rx": None,
             "last_error": None,
             "recent_errors": [],
+            "recent_denials": [],
         }
 
     # ---- compat cache views (list_nodes / has_capability) --------------------
@@ -111,6 +120,47 @@ class McRpcBridge:
     @property
     def default_channel(self) -> int:
         return int(self.entry.data.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL))
+
+    def policy(self) -> McRpcPolicy:
+        return McRpcPolicy(dict(self.entry.data), entry_id=self.entry.entry_id)
+
+    def _contact_names(self) -> list[str]:
+        names: list[str] = []
+        contacts = getattr(self.coordinator, "get_all_contacts", None)
+        if callable(contacts):
+            for c in contacts() or []:
+                if isinstance(c, dict):
+                    n = c.get("name") or c.get("adv_name")
+                    if n:
+                        names.append(str(n))
+        return names
+
+    def _note_denial(self, reason: str, *, source: str | None, channel_idx: Any) -> None:
+        self.stats["denied"] = int(self.stats["denied"]) + 1
+        recent = list(self.stats.get("recent_denials") or [])
+        recent.append(
+            {
+                "time": dt_util.utcnow().isoformat(),
+                "reason": reason,
+                "source": source,
+                "channel": channel_idx,
+            }
+        )
+        self.stats["recent_denials"] = recent[-20:]
+        if self.debug:
+            _LOGGER.debug(
+                "mcRPC denied reason=%s source=%s channel=%s",
+                reason,
+                source,
+                channel_idx,
+            )
+
+    def _record_rtt(self, latency_ms: float | None) -> None:
+        if latency_ms is None:
+            return
+        self.stats["rtt_sum_ms"] = float(self.stats["rtt_sum_ms"]) + float(latency_ms)
+        self.stats["rtt_count"] = int(self.stats["rtt_count"]) + 1
+        self.stats["rx_matched"] = int(self.stats["rx_matched"]) + 1
 
     async def async_setup(self) -> None:
         if not self.enabled:
@@ -155,7 +205,7 @@ class McRpcBridge:
         if not self.enabled:
             raise RuntimeError(
                 "Mesh node requests are disabled. Enable them under "
-                "MeshCore → Configure → Global Settings."
+                "MeshCore → Configure → Mesh Node Requests (mcRPC)."
             )
         if self._mcrpc is None or self._correlator is None:
             self._mcrpc = _import_mcrpc()
@@ -542,6 +592,7 @@ class McRpcBridge:
         if not wait:
             return sent
 
+        self.stats["tx_wait_expected"] = int(self.stats["tx_wait_expected"]) + 1
         result = await self._await_response(sent["request_id"], to)
         return result if parse else self._strip_parsed(result)
 
@@ -613,6 +664,7 @@ class McRpcBridge:
         if not wait:
             return sent
 
+        self.stats["tx_wait_expected"] = int(self.stats["tx_wait_expected"]) + 1
         pending = self._correlator.peek(sent["request_id"])
         result = await self._await_broadcast(sent["request_id"], to, pending)
         if not parse:
@@ -823,28 +875,175 @@ class McRpcBridge:
                         "raw": p.raw_request,
                     }
                 )
+        pol = self.policy()
+        rtt_count = int(self.stats.get("rtt_count") or 0)
+        avg_rtt = (
+            round(float(self.stats.get("rtt_sum_ms") or 0.0) / rtt_count, 1)
+            if rtt_count
+            else None
+        )
+        expected = int(self.stats.get("tx_wait_expected") or 0)
+        matched = int(self.stats.get("rx_matched") or 0)
+        timeouts = int(self.stats.get("timeouts") or 0)
+        packet_loss = None
+        if expected > 0:
+            packet_loss = round(max(0.0, 1.0 - (matched / expected)) * 100.0, 1)
+        elif timeouts > 0 and matched == 0:
+            packet_loss = 100.0
+
+        listen = pol.listening_channel_indexes()
         return {
+            "enabled": self.enabled,
             "node_requests_enabled": self.enabled,
+            "listening_channels": "all" if listen is None else listen,
+            "listen_mode": pol.listen_mode,
+            "accepted_addressing": {
+                "broadcast": pol.accept_broadcast,
+                "addressed": pol.accept_addressed,
+                "bare": pol.accept_bare,
+            },
+            "allowed_senders_mode": pol.sender_mode,
+            "allow_list": sorted(pol.allow_list),
+            "reply_identity": pol.reply_identity,
+            "answer_requests": pol.answer_requests,
+            "pending_requests": pending,
+            "known_nodes": self.registry.list_dicts(),
+            "average_rtt_ms": avg_rtt,
+            "packet_loss_percent": packet_loss,
+            "last_rx": self.stats.get("last_rx"),
+            "last_tx": self.stats.get("last_tx"),
+            "parser_errors": self.stats.get("parser_errors"),
             "connected": connected,
             "transport": conn_type,
             "current_channel": self.default_channel,
             "default_timeout": self.default_timeout,
-            "last_rx": self.stats.get("last_rx"),
-            "last_tx": self.stats.get("last_tx"),
-            "known_nodes": self.registry.list_dicts(),
             "capabilities": self.capability_cache,
-            "pending_requests": pending,
-            "outstanding_timeouts": self.stats.get("timeouts"),
+            "outstanding_timeouts": timeouts,
+            "denied_requests": self.stats.get("denied"),
+            "answered_requests": self.stats.get("answered"),
+            "recent_denials": self.stats.get("recent_denials"),
             "recent_protocol_errors": self.stats.get("recent_errors"),
             "parser_statistics": {
                 "parse_ok": self.stats.get("parse_ok"),
                 "parse_unknown": self.stats.get("parse_unknown"),
+                "parser_errors": self.stats.get("parser_errors"),
                 "rx_count": self.stats.get("rx_count"),
                 "tx_count": self.stats.get("tx_count"),
                 "errors": self.stats.get("errors"),
             },
+            "policy": pol.summary(),
             "device_mapper_preview": self.list_cached_nodes().get("devices_preview"),
         }
+
+    def _build_answer_body(self, req) -> str:
+        """Minimal HA-side answers for inbound mesh requests."""
+        assert self._mcrpc is not None
+        cmd = (req.command or "").lower()
+        rid = req.request_id if getattr(req, "has_request_id", False) else None
+        name = self.policy().local_name or "ha"
+
+        if cmd == "ping":
+            body = "pong"
+        elif cmd == "status":
+            body = f"status name={name} profile=ha"
+        elif cmd == "discover":
+            body = (
+                f"discover name={name} profile=ha protocol=1.0 "
+                f"sdk={getattr(self._mcrpc, 'SDK_VERSION', '1.0.0')}"
+            )
+        elif cmd in {"help", "caps"}:
+            body = "ok ha ping status discover"
+        else:
+            body = self._mcrpc.build_error("unsupported")
+        return self._mcrpc.prefix_request_id(body, rid)
+
+    async def _async_send_answer(self, channel_idx: int, text: str) -> None:
+        """Send a reply using the configured reply identity (multi-radio ready)."""
+        pol = self.policy()
+        domain_data = self.hass.data.get(DOMAIN, {})
+        reply_entry_id = pol.resolve_reply_entry_id(domain_data)
+        coordinator = domain_data.get(reply_entry_id) or self.coordinator
+        api = getattr(coordinator, "api", None)
+        if not api or not getattr(api, "connected", False):
+            self._note_error("reply_identity_offline")
+            return
+        result = await api.mesh_core.commands.send_chan_msg(
+            int(channel_idx), text, timestamp=int(time.time())
+        )
+        from meshcore.events import EventType
+
+        if result.type == EventType.ERROR:
+            self._note_error(str(result.payload))
+            return
+        self.stats["answered"] = int(self.stats["answered"]) + 1
+        self.stats["tx_count"] = int(self.stats["tx_count"]) + 1
+        self.stats["last_tx"] = {
+            "time": dt_util.utcnow().isoformat(),
+            "raw": text,
+            "channel": channel_idx,
+            "reply": True,
+            "reply_entry_id": reply_entry_id,
+        }
+
+    _BARE_COMMANDS = frozenset(
+        {"ping", "status", "discover", "gps", "battery", "help", "caps", "voltage", "charging"}
+    )
+
+    def _maybe_answer_inbound(
+        self,
+        *,
+        body: str,
+        source: str | None,
+        channel_idx: int,
+    ) -> None:
+        """Evaluate policy and answer inbound requests when allowed."""
+        assert self._mcrpc is not None
+        pol = self.policy()
+        if not pol.answer_requests:
+            return
+
+        parse_result, req = self._mcrpc.parse(body)
+        parse_ok = parse_result == self._mcrpc.ParseResult.Ok
+
+        # Bare: "ping" alone is parsed as MissingCommand with target=ping
+        if not parse_ok:
+            if (
+                parse_result == self._mcrpc.ParseResult.MissingCommand
+                and (req.target or "").lower() in self._BARE_COMMANDS
+            ):
+                req.command = req.target
+                req.target = ""
+                req.has_request_id = False
+            elif parse_result == self._mcrpc.ParseResult.MissingTarget:
+                tokens = body.strip().split()
+                if not tokens:
+                    return
+                cmd_token = tokens[0]
+                if cmd_token.startswith("#") and len(tokens) > 1:
+                    cmd_token = tokens[1]
+                req = self._mcrpc.Request()
+                req.command = cmd_token
+                req.has_request_id = False
+            else:
+                self.stats["parser_errors"] = int(self.stats["parser_errors"]) + 1
+                self.stats["parse_unknown"] = int(self.stats["parse_unknown"]) + 1
+                return
+
+        decision = pol.decide_inbound_request(
+            channel_idx=channel_idx,
+            sender_name=source,
+            req=req,
+            parse_ok=parse_ok,
+            contact_names=self._contact_names(),
+        )
+        if not decision.allow:
+            self._note_denial(
+                decision.reason, source=source, channel_idx=channel_idx
+            )
+            return
+
+        reply = self._build_answer_body(req)
+        self.hass.async_create_task(self._async_send_answer(int(channel_idx), reply))
 
     @callback
     def _on_meshcore_message(self, event: Event) -> None:
@@ -872,6 +1071,16 @@ class McRpcBridge:
         }
 
         if kind == "event" and evt is not None:
+            traffic = self.policy().decide_inbound_traffic(
+                channel_idx=channel_idx,
+                sender_name=source,
+                contact_names=self._contact_names(),
+            )
+            if not traffic.allow:
+                self._note_denial(
+                    traffic.reason, source=source, channel_idx=channel_idx
+                )
+                return
             self.stats["parse_ok"] = int(self.stats["parse_ok"]) + 1
             payload = {
                 "node": source,
@@ -897,8 +1106,12 @@ class McRpcBridge:
             return
 
         if kind == "response" and response is not None:
+            # Correlated replies to our outbound requests always accepted.
+            # Unmatched Unknown → may be an inbound request instead.
             if response.kind.name == "Unknown" and pending is None:
-                self.stats["parse_unknown"] = int(self.stats["parse_unknown"]) + 1
+                self._maybe_answer_inbound(
+                    body=body, source=source, channel_idx=int(channel_idx)
+                )
                 return
 
             self.stats["parse_ok"] = int(self.stats["parse_ok"]) + 1
@@ -915,6 +1128,7 @@ class McRpcBridge:
                 latency_ms = round(
                     (time.monotonic() - float(pending.meta["sent_at"])) * 1000, 1
                 )
+            self._record_rtt(latency_ms)
 
             payload = self._base_payload(
                 node=node,
@@ -965,6 +1179,12 @@ class McRpcBridge:
 
             if self.debug:
                 _LOGGER.debug("Node response command=%s id=%s", command, response.request_id)
+            return
+
+        # Not classified as response/event — try inbound request
+        self._maybe_answer_inbound(
+            body=body, source=source, channel_idx=int(channel_idx)
+        )
 
     def last_response(self, command: str) -> dict[str, Any] | None:
         return self._last_by_command.get(command)
