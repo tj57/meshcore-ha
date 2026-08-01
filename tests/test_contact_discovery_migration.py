@@ -160,7 +160,7 @@ def test_accessor_defaults_to_full_when_absent():
 async def test_migrate_disable_maps_to_off():
     ok, entry = await _run(2, {_LEGACY_DISABLE: True})
     assert ok is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data[CONF_MODE] == MODE_OFF
     assert _LEGACY_DISABLE not in entry.data
     assert _LEGACY_LARGE_MESH not in entry.data
@@ -170,7 +170,7 @@ async def test_migrate_disable_maps_to_off():
 async def test_migrate_large_mesh_maps_to_data_only():
     ok, entry = await _run(2, {_LEGACY_LARGE_MESH: True})
     assert ok is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data[CONF_MODE] == MODE_DATA_ONLY
     assert _LEGACY_LARGE_MESH not in entry.data
 
@@ -179,7 +179,7 @@ async def test_migrate_large_mesh_maps_to_data_only():
 async def test_migrate_neither_maps_to_full():
     ok, entry = await _run(2, {})
     assert ok is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data[CONF_MODE] == MODE_FULL
 
 
@@ -209,33 +209,48 @@ async def test_migrate_preserves_unrelated_keys():
 
 
 @pytest.mark.asyncio
-async def test_migrate_v1_chains_to_v3():
-    """A v1 entry must run v1->v2 then fall through to v2->v3 in one pass.
+async def test_migrate_v1_chains_to_v4():
+    """A v1 entry must chain v1→v2→v3→v4 in one pass.
 
     Guards the standalone-``if`` requirement: an ``elif`` here would leave a v1
-    entry at version 2 with no contact_discovery_mode key.
+    entry stranded mid-chain without contact_discovery_mode / mcrpc keys.
     """
     ok, entry = await _run(1, {})
     assert ok is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data[CONF_MODE] == MODE_FULL
+    assert const.CONF_MCRPC_LISTEN_MODE in entry.data
     assert _LEGACY_DISABLE not in entry.data
     assert _LEGACY_LARGE_MESH not in entry.data
 
 
 @pytest.mark.asyncio
 async def test_migrate_v1_with_large_mesh_chains_to_data_only():
-    """A v1 entry that already carried large_mesh_mode=True lands on data_only at v3."""
+    """A v1 entry that already carried large_mesh_mode=True lands on data_only at v4."""
     ok, entry = await _run(1, {_LEGACY_LARGE_MESH: True})
     assert ok is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data[CONF_MODE] == MODE_DATA_ONLY
     assert _LEGACY_LARGE_MESH not in entry.data
 
 
 @pytest.mark.asyncio
 async def test_migrate_rejects_downgrade_from_future_version():
-    ok, entry = await _run(4, {})
+    ok, entry = await _run(5, {})
     assert ok is False
-    assert entry.version == 4
+    assert entry.version == 5
     assert CONF_MODE not in entry.data
+
+
+@pytest.mark.asyncio
+async def test_migrate_v3_to_v4_mcrpc_keys():
+    """v3 entries gain Mesh Node Requests security keys without reconfiguration."""
+    ok, entry = await _run(
+        3,
+        {"name": "Home", "mcrpc_enabled": True, "mcrpc_channel": 1},
+    )
+    assert ok is True
+    assert entry.version == 4
+    assert entry.data[const.CONF_MCRPC_LISTEN_MODE] == const.MCRPC_LISTEN_SELECTED
+    assert entry.data[const.CONF_MCRPC_LISTEN_CHANNELS] == [1]
+    assert entry.data[const.CONF_MCRPC_ACCEPT_BARE] is True

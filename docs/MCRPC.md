@@ -1,13 +1,14 @@
-# Mesh node requests (Home Assistant)
+# Mesh Node Requests (mcRPC) — Home Assistant
 
 Optional extension of the MeshCore integration. **Disabled by default**.
 
 The wire protocol (mcRPC) is an **internal transport**. Automations use Home Assistant
-services and events — not protocol details.
+services and events — not protocol details. The protocol and public HA service API are
+frozen; this document covers **configuration, security, diagnostics, and migration**.
 
 | Doc | Topic |
 |-----|-------|
-| This file | Services, events, cache, examples |
+| This file | Services, config, security, diagnostics, migration |
 | [ARCHITECTURE_MCRPC.md](./ARCHITECTURE_MCRPC.md) | How the bridge attaches |
 | [ROADMAP_MCRPC.md](./ROADMAP_MCRPC.md) | Done / next |
 | [`examples/automations/`](../examples/automations/) | Ready-to-use YAML |
@@ -26,7 +27,7 @@ services and events — not protocol details.
                     ┌───────────▼───────────┐
                     │     McRpcBridge       │
                     │  correlator · waiters │
-                    │  broadcast buckets    │
+                    │  McRpcPolicy (security)│
                     └───────────┬───────────┘
                                 │
               ┌─────────────────┼─────────────────┐
@@ -38,17 +39,76 @@ services and events — not protocol details.
          channel text  ←→  mcrpc package (internal)
 ```
 
-### Node Registry
+Inbound answers use **McRpcPolicy** (listening channels, addressing, allowed senders)
+and **reply identity** (which local radio sends the reply — multi-radio ready).
 
-Each node keeps: id, name, profile, capabilities, firmware, protocol, sdk, battery,
-last_seen, RSSI, channel, discovered time, last status, extra fields.
+---
 
-Updated from **discover / status / battery / events**. Unknown keys → `extra`.
+## Configuration
 
-### Device Mapper
+**Settings → Devices & Services → MeshCore → Configure → Mesh Node Requests (mcRPC)**
 
-`NodeDeviceMapper.to_device_info(node)` builds a future HA `DeviceInfo` dict.
-**No devices or entities are created yet.**
+```
+┌─ Mesh Node Requests (mcRPC) ─────────────────────────────┐
+│ ☑ Enable Mesh Node Requests                              │
+│ ☑ Answer inbound requests                                │
+│ Listening channels:  [ Selected channels          ▾ ]    │
+│ Selected channels:   ☑ Channel 1 (mcYogi)                │
+│                      ☐ Channel 0 (Public)                │
+│ Default TX / current channel index:  1                   │
+│ ☑ Accept broadcast (all …)                               │
+│ ☑ Accept addressed commands                              │
+│ ☐ Accept bare commands                                   │
+│ Allowed senders:     [ Any node                   ▾ ]    │
+│ Allow list:          (names / IDs, one per line)         │
+│ Reply identity:      [ This radio (HomeHA)        ▾ ]    │
+│ Timeout / events / debug …                               │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Listening channels
+
+| Mode | Behaviour |
+|------|-----------|
+| Disabled | Do not accept inbound mcRPC |
+| Current channel | Listen on the default TX channel index |
+| Selected channels | Listen on chosen indexes only (UI shows names; **indexes stored**) |
+| All channels | Listen on every channel |
+
+### Accepted addressing
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| Broadcast | Enabled | `all …` requests |
+| Addressed | Enabled | Named / self targets for this HA node |
+| Bare | **Disabled** | Command-only lines without a target |
+
+### Allowed senders
+
+| Mode | Meaning |
+|------|---------|
+| Any node | No sender filter |
+| Contacts only | Sender must be a known contact name |
+| Allow list | Sender name/ID must appear in the allow list |
+
+### Reply identity
+
+Select which MeshCore config entry / radio identity sends answers.
+Today typically **This radio**; architecture supports multiple local radios later.
+
+---
+
+## Security defaults
+
+For **new** installs (or never-enabled mcRPC):
+
+- Do **not** listen on Public (channel 0) until you select it
+- Do **not** answer bare commands
+- Only answer on configured private / selected channels
+- Only answer addressed or broadcast (when those toggles are on)
+
+Existing installs that already had mcRPC enabled are migrated to keep working
+(see [Migration](#migration)).
 
 ---
 
@@ -68,31 +128,14 @@ Updated from **discover / status / battery / events**. Unknown keys → `extra`.
 | `wait` | **true** | `false` = fire-and-forget |
 | `parse` | **true** | `false` = raw fields only |
 
-Fresh discover/status/battery/caps answers may be served from the **cache** (no radio).
+### `meshcore.broadcast` / `meshcore.raw` / `meshcore.send_mcrpc`
 
-### `meshcore.broadcast`
-
-When `wait=true`, returns:
-
-```yaml
-responses:
-  - source: tracker
-    request_id: 7
-    latency_ms: 312.5
-    parsed: { ... }
-    raw: "status name=tracker ..."
-count: 2
-success: true
-```
-
-### `meshcore.raw` / `meshcore.send_mcrpc` (Advanced)
-
-Arbitrary channel text for debugging.
+Unchanged public API (backward compatible).
 
 ### Cache helpers
 
-- `meshcore.list_nodes` — registry + device-mapper preview  
-- `meshcore.has_capability` — capability check without parsing text  
+- `meshcore.list_nodes`
+- `meshcore.has_capability`
 
 ---
 
@@ -111,37 +154,40 @@ Legacy `meshcore_mcrpc_*` aliases still fire.
 
 **Settings → Devices & Services → MeshCore → Download diagnostics**
 
-Includes: connected, transport, channel, last RX/TX, known nodes, capabilities,
-pending requests, timeouts, recent errors, parser statistics.
+Includes:
 
-(Screenshots depend on your HA UI theme — use Download diagnostics.)
+| Field | Description |
+|-------|-------------|
+| Enabled | Feature on/off |
+| Listening channels | Indexes or `all` |
+| Accepted addressing | broadcast / addressed / bare |
+| Allowed senders mode | any / contacts / allowlist |
+| Pending requests | In-flight correlator entries |
+| Known nodes | Node Registry snapshot |
+| Average RTT | Mean latency of matched replies |
+| Packet loss | Estimated from wait timeouts vs matches |
+| Last RX / Last TX | Most recent traffic |
+| Parser errors | Unparseable inbound lines |
+
+---
+
+## Migration
+
+Config entry **version 4** adds the Mesh Node Requests section.
+
+| Prior state | After migration |
+|-------------|-----------------|
+| `mcrpc_enabled=false` (or unset) | Secure defaults: selected channels empty, bare off |
+| `mcrpc_enabled=true` | Selected channels = previous `mcrpc_channel` (even if 0); bare **on** to preserve prior behaviour |
+
+No reconfiguration is required. Old keys (`mcrpc_enabled`, `mcrpc_timeout`,
+`mcrpc_channel`, …) remain valid.
 
 ---
 
 ## Examples
 
-See [`examples/automations/`](../examples/automations/):
-
-| File | Purpose |
-|------|---------|
-| `ping.yaml` | Sync ping + notify |
-| `gps.yaml` | GPS once + coordinates |
-| `battery.yaml` | Periodic low-battery warn |
-| `broadcast_status.yaml` | Multi-node `responses[]` |
-| `capability_check.yaml` | discover → has gps → request |
-
-### Sync GPS (inline)
-
-```yaml
-- action: meshcore.request
-  data:
-    target: lw010
-    command: gps
-    args: once
-  response_variable: gps
-- condition: template
-  value_template: "{{ gps.success }}"
-```
+See [`examples/automations/`](../examples/automations/).
 
 ---
 
@@ -149,4 +195,4 @@ See [`examples/automations/`](../examples/automations/):
 
 - Existing MeshCore messaging/entities unchanged when node requests are off.
 - Public service names unchanged; new fields (`parse`) are optional with defaults.
-- Broadcast wait now returns `responses[]` (first reply still mirrored at top level).
+- Broadcast wait returns `responses[]` (first reply still mirrored at top level).
