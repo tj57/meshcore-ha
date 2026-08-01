@@ -80,18 +80,104 @@ ATTR_CAPABILITY: Final = "capability"
 # Config keys keep the mcrpc_* prefix for backward compatibility with existing entries.
 CONF_MCRPC_ENABLED: Final = "mcrpc_enabled"
 CONF_MCRPC_TIMEOUT: Final = "mcrpc_timeout"
-CONF_MCRPC_CHANNEL: Final = "mcrpc_channel"
+CONF_MCRPC_CHANNEL: Final = "mcrpc_channel"  # default TX / "current" listen channel
 CONF_MCRPC_EVENT_BRIDGE: Final = "mcrpc_event_bridge"
 CONF_MCRPC_DEBUG: Final = "mcrpc_debug"
 CONF_MCRPC_ENTITY_BRIDGE: Final = "mcrpc_entity_bridge"
+# Listening / security (config entry version 4+)
+CONF_MCRPC_LISTEN_MODE: Final = "mcrpc_listen_mode"
+CONF_MCRPC_LISTEN_CHANNELS: Final = "mcrpc_listen_channels"  # list[int], names only in UI
+CONF_MCRPC_ACCEPT_BROADCAST: Final = "mcrpc_accept_broadcast"
+CONF_MCRPC_ACCEPT_ADDRESSED: Final = "mcrpc_accept_addressed"
+CONF_MCRPC_ACCEPT_BARE: Final = "mcrpc_accept_bare"
+CONF_MCRPC_SENDER_MODE: Final = "mcrpc_sender_mode"
+CONF_MCRPC_ALLOW_LIST: Final = "mcrpc_allow_list"  # list[str] node ids/names
+CONF_MCRPC_REPLY_IDENTITY: Final = "mcrpc_reply_identity"  # "self" | entry_id
+CONF_MCRPC_ANSWER_REQUESTS: Final = "mcrpc_answer_requests"
+
+MCRPC_LISTEN_DISABLED: Final = "disabled"
+MCRPC_LISTEN_CURRENT: Final = "current"
+MCRPC_LISTEN_SELECTED: Final = "selected"
+MCRPC_LISTEN_ALL: Final = "all"
+MCRPC_LISTEN_MODES: Final = (
+    MCRPC_LISTEN_DISABLED,
+    MCRPC_LISTEN_CURRENT,
+    MCRPC_LISTEN_SELECTED,
+    MCRPC_LISTEN_ALL,
+)
+
+MCRPC_SENDER_ANY: Final = "any"
+MCRPC_SENDER_CONTACTS: Final = "contacts"
+MCRPC_SENDER_ALLOWLIST: Final = "allowlist"
+MCRPC_SENDER_MODES: Final = (
+    MCRPC_SENDER_ANY,
+    MCRPC_SENDER_CONTACTS,
+    MCRPC_SENDER_ALLOWLIST,
+)
+
 DEFAULT_MCRPC_TIMEOUT: Final = 15
 DEFAULT_MCRPC_CHANNEL: Final = 0
+# Secure defaults for new installs (no answer on public / bare)
+DEFAULT_MCRPC_LISTEN_MODE: Final = MCRPC_LISTEN_SELECTED
+DEFAULT_MCRPC_ACCEPT_BROADCAST: Final = True
+DEFAULT_MCRPC_ACCEPT_ADDRESSED: Final = True
+DEFAULT_MCRPC_ACCEPT_BARE: Final = False
+DEFAULT_MCRPC_SENDER_MODE: Final = MCRPC_SENDER_ANY
+DEFAULT_MCRPC_REPLY_IDENTITY: Final = "self"
+DEFAULT_MCRPC_ANSWER_REQUESTS: Final = True
+
 # Primary HA-native events (protocol-agnostic names)
 EVENT_NODE_RESPONSE: Final = f"{DOMAIN}_response"
 EVENT_NODE_EVENT: Final = f"{DOMAIN}_event"
 # Legacy aliases from the first mcRPC draft (still fired)
 EVENT_MCRPC_RESPONSE: Final = f"{DOMAIN}_mcrpc_response"
 EVENT_MCRPC_EVENT: Final = f"{DOMAIN}_mcrpc_event"
+
+
+def migrate_mcrpc_config(data: dict) -> dict:
+    """Fill Mesh Node Requests keys. Idempotent; preserves prior behaviour when enabled."""
+    out = dict(data)
+    already = CONF_MCRPC_LISTEN_MODE in out
+    enabled = bool(out.get(CONF_MCRPC_ENABLED, False))
+    old_ch = int(out.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL))
+
+    if not already:
+        if enabled:
+            # Preserve previous "listen/send on configured channel" behaviour
+            out[CONF_MCRPC_LISTEN_MODE] = MCRPC_LISTEN_SELECTED
+            out[CONF_MCRPC_LISTEN_CHANNELS] = [old_ch]
+            out[CONF_MCRPC_ACCEPT_BROADCAST] = True
+            out[CONF_MCRPC_ACCEPT_ADDRESSED] = True
+            # Old builds did not filter bare lines aggressively
+            out[CONF_MCRPC_ACCEPT_BARE] = True
+            out[CONF_MCRPC_SENDER_MODE] = MCRPC_SENDER_ANY
+            out[CONF_MCRPC_ALLOW_LIST] = []
+            out[CONF_MCRPC_REPLY_IDENTITY] = DEFAULT_MCRPC_REPLY_IDENTITY
+            out[CONF_MCRPC_ANSWER_REQUESTS] = True
+        else:
+            # Secure defaults — user must opt into private channels
+            out[CONF_MCRPC_LISTEN_MODE] = DEFAULT_MCRPC_LISTEN_MODE
+            out[CONF_MCRPC_LISTEN_CHANNELS] = []
+            out[CONF_MCRPC_ACCEPT_BROADCAST] = DEFAULT_MCRPC_ACCEPT_BROADCAST
+            out[CONF_MCRPC_ACCEPT_ADDRESSED] = DEFAULT_MCRPC_ACCEPT_ADDRESSED
+            out[CONF_MCRPC_ACCEPT_BARE] = DEFAULT_MCRPC_ACCEPT_BARE
+            out[CONF_MCRPC_SENDER_MODE] = DEFAULT_MCRPC_SENDER_MODE
+            out[CONF_MCRPC_ALLOW_LIST] = []
+            out[CONF_MCRPC_REPLY_IDENTITY] = DEFAULT_MCRPC_REPLY_IDENTITY
+            out[CONF_MCRPC_ANSWER_REQUESTS] = DEFAULT_MCRPC_ANSWER_REQUESTS
+
+    # Normalize types
+    chans = out.get(CONF_MCRPC_LISTEN_CHANNELS, [])
+    if isinstance(chans, str):
+        chans = [int(x) for x in chans.replace(",", " ").split() if x.strip().isdigit()]
+    out[CONF_MCRPC_LISTEN_CHANNELS] = [int(c) for c in (chans or [])]
+    allow = out.get(CONF_MCRPC_ALLOW_LIST, [])
+    if isinstance(allow, str):
+        allow = [a.strip() for a in allow.replace(",", "\n").splitlines() if a.strip()]
+        if len(allow) == 1 and " " in allow[0]:
+            allow = [a for a in allow[0].split() if a]
+    out[CONF_MCRPC_ALLOW_LIST] = list(allow or [])
+    return out
 
 # Platform constants
 PLATFORM_MESSAGE: Final = "message"
