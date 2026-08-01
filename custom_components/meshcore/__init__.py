@@ -764,6 +764,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.info("MESSAGES_WAITING auto-fetch subscriber registered")
 
+    # Optional mcRPC bridge (default off)
+    try:
+        from .mcrpc_bridge import McRpcBridge
+
+        bridge = McRpcBridge(hass, coordinator, entry)
+        coordinator.mcrpc_bridge = bridge
+        await bridge.async_setup()
+    except Exception as ex:
+        _LOGGER.warning("mcRPC bridge failed to start: %s - continuing without it", ex)
+        coordinator.mcrpc_bridge = None
+
     # Fetch initial data immediately
     # await coordinator._async_update_data()
     
@@ -784,6 +795,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok and entry.entry_id in hass.data[DOMAIN]:
         # Get coordinator and clean up
         coordinator = hass.data[DOMAIN][entry.entry_id]
+
+        bridge = getattr(coordinator, "mcrpc_bridge", None)
+        if bridge is not None:
+            try:
+                await bridge.async_unload()
+            except Exception as ex:
+                _LOGGER.debug("mcRPC bridge unload: %s", ex)
         
         # Remove any event listeners registered by the coordinator
         if hasattr(coordinator, "_remove_listeners"):

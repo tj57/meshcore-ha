@@ -56,6 +56,7 @@ from .const import (
     SERVICE_GET_DISCOVERED_CONTACT,
     SERVICE_GET_CHANNELS,
     SERVICE_TRACE,
+    SERVICE_SEND_MCRPC,
     SELECT_NO_CONTACTS,
     SELECT_NO_DISCOVERED,
     SELECT_NO_ADDED,
@@ -66,6 +67,11 @@ from .const import (
     ATTR_ENTRY_ID,
     ATTR_SCOPE,
     ATTR_RECORD_TO_CONSOLE,
+    ATTR_TARGET,
+    ATTR_ARGUMENTS,
+    ATTR_REQUEST_ID,
+    ATTR_TIMEOUT,
+    ATTR_BROADCAST,
 )
 from .utils import extract_pubkey_from_selection
 from .binary_sensor import create_contact_sensor
@@ -90,6 +96,19 @@ SEND_CHANNEL_MESSAGE_SCHEMA = vol.Schema(
         vol.Required(ATTR_MESSAGE): cv.string,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
         vol.Optional(ATTR_SCOPE): vol.Any(None, cv.string),
+    }
+)
+
+SEND_MCRPC_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_TARGET): cv.string,
+        vol.Required(ATTR_COMMAND): cv.string,
+        vol.Optional(ATTR_ARGUMENTS): vol.Any(cv.string, [cv.string]),
+        vol.Optional(ATTR_REQUEST_ID): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional(ATTR_TIMEOUT): vol.All(vol.Coerce(float), vol.Range(min=1, max=120)),
+        vol.Optional(ATTR_BROADCAST, default=False): cv.boolean,
+        vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
 
@@ -1895,6 +1914,35 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.ONLY,
     )
 
+    async def async_send_mcrpc_service(call: ServiceCall) -> dict[str, Any]:
+        """Send an mcRPC request over the configured MeshCore channel."""
+        entry_id = call.data.get(ATTR_ENTRY_ID)
+        coordinator = _resolve_coordinator(entry_id)
+        if coordinator is None:
+            raise ValueError("No connected MeshCore entry found")
+        bridge = getattr(coordinator, "mcrpc_bridge", None)
+        if bridge is None or not bridge.enabled:
+            raise ValueError(
+                "mcRPC is not enabled. Enable it under MeshCore → Configure → Global Settings."
+            )
+        return await bridge.async_send(
+            target=call.data.get(ATTR_TARGET),
+            command=call.data[ATTR_COMMAND],
+            arguments=call.data.get(ATTR_ARGUMENTS),
+            request_id=call.data.get(ATTR_REQUEST_ID),
+            timeout=call.data.get(ATTR_TIMEOUT),
+            broadcast=bool(call.data.get(ATTR_BROADCAST, False)),
+            channel_idx=call.data.get(ATTR_CHANNEL_IDX),
+        )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_MCRPC,
+        async_send_mcrpc_service,
+        schema=SEND_MCRPC_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
 
 async def async_unload_services(hass: HomeAssistant) -> None:
     """Unload MeshCore services."""
@@ -1942,6 +1990,9 @@ async def async_unload_services(hass: HomeAssistant) -> None:
 
     if hass.services.has_service(DOMAIN, SERVICE_TRACE):
         hass.services.async_remove(DOMAIN, SERVICE_TRACE)
+
+    if hass.services.has_service(DOMAIN, SERVICE_SEND_MCRPC):
+        hass.services.async_remove(DOMAIN, SERVICE_SEND_MCRPC)
 
 
 def create_service_call(

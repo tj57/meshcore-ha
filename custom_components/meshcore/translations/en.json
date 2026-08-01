@@ -114,7 +114,7 @@
           "repeater_update_interval": "Telemetry Refresh Rate (seconds)"
         },
         "data_description": {
-          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware \u2265 1.14.0."
+          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware ≥ 1.14.0."
         },
         "description": "Monitor a repeater for telemetry and status",
         "title": "Add Repeater Station"
@@ -143,7 +143,7 @@
           "repeater_update_interval": "Telemetry Refresh Rate (seconds)"
         },
         "data_description": {
-          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware \u2265 1.14.0."
+          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware ≥ 1.14.0."
         },
         "description": "Edit settings for {device_name}",
         "title": "Edit Repeater"
@@ -171,7 +171,13 @@
           "auto_cleanup_stale_neighbors": "Auto-Remove Stale Neighbors",
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
-          "flood_scopes": "Flood Scope Allowlist"
+          "flood_scopes": "Flood Scope Allowlist",
+          "mcrpc_enabled": "Enable mcRPC",
+          "mcrpc_timeout": "mcRPC default timeout (seconds)",
+          "mcrpc_channel": "mcRPC default channel index",
+          "mcrpc_event_bridge": "Enable mcRPC event bridge",
+          "mcrpc_debug": "Enable mcRPC debug logging",
+          "mcrpc_entity_bridge": "Enable mcRPC entity bridge (experimental stub)"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -182,7 +188,13 @@
           "auto_cleanup_stale_neighbors": "Automatically remove neighbor entries and their sensor entities when they haven't been heard from in the configured number of days.",
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
-          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching."
+          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
+          "mcrpc_enabled": "Optional text-RPC over MeshCore channels. Off by default; existing MeshCore behaviour is unchanged until enabled.",
+          "mcrpc_timeout": "Default seconds to wait for a correlated reply before emitting a timeout response event (1–120).",
+          "mcrpc_channel": "Default MeshCore channel index used by meshcore.send_mcrpc.",
+          "mcrpc_event_bridge": "When enabled, channel messages are classified and fired as meshcore_mcrpc_response / meshcore_mcrpc_event.",
+          "mcrpc_debug": "Extra debug logs for mcRPC send/receive correlation.",
+          "mcrpc_entity_bridge": "Reserved for future automatic sensors/trackers. Currently a no-op stub; leave off."
         },
         "description": "Configure global integration settings",
         "title": "Global Settings"
@@ -240,7 +252,7 @@
           "disable_path_reset": "Disable Path Reset"
         },
         "data_description": {
-          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware \u2265 1.14.0."
+          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware ≥ 1.14.0."
         },
         "description": "Monitor a repeater for telemetry and status",
         "title": "Add Repeater Station"
@@ -272,7 +284,7 @@
           "disabled": "Disable Device"
         },
         "data_description": {
-          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware \u2265 1.14.0."
+          "neighbors_enabled": "Queries this repeater for its neighbor list on each poll cycle and exposes each neighbor as two sensors. Airtime cost is one direct request and response per cycle — at the default 2-hour `Update Interval` that's roughly one exchange every 2 hours per enabled repeater, comparable to one extra telemetry request. Requires MeshCore firmware ≥ 1.14.0."
         },
         "description": "Edit settings for {device_name}",
         "title": "Edit Repeater"
@@ -302,7 +314,13 @@
           "auto_cleanup_stale_neighbors": "Auto-Remove Stale Neighbors",
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
-          "flood_scopes": "Flood Scope Allowlist"
+          "flood_scopes": "Flood Scope Allowlist",
+          "mcrpc_enabled": "Enable mcRPC",
+          "mcrpc_timeout": "mcRPC default timeout (seconds)",
+          "mcrpc_channel": "mcRPC default channel index",
+          "mcrpc_event_bridge": "Enable mcRPC event bridge",
+          "mcrpc_debug": "Enable mcRPC debug logging",
+          "mcrpc_entity_bridge": "Enable mcRPC entity bridge (experimental stub)"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -313,7 +331,13 @@
           "auto_cleanup_stale_neighbors": "Automatically remove neighbor entries and their sensor entities when they haven't been heard from in the configured number of days.",
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
-          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching."
+          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
+          "mcrpc_enabled": "Optional text-RPC over MeshCore channels. Off by default; existing MeshCore behaviour is unchanged until enabled.",
+          "mcrpc_timeout": "Default seconds to wait for a correlated reply before emitting a timeout response event (1–120).",
+          "mcrpc_channel": "Default MeshCore channel index used by meshcore.send_mcrpc.",
+          "mcrpc_event_bridge": "When enabled, channel messages are classified and fired as meshcore_mcrpc_response / meshcore_mcrpc_event.",
+          "mcrpc_debug": "Extra debug logs for mcRPC send/receive correlation.",
+          "mcrpc_entity_bridge": "Reserved for future automatic sensors/trackers. Currently a no-op stub; leave off."
         },
         "description": "Configure global integration settings",
         "title": "Global Settings"
@@ -381,7 +405,7 @@
         "message": {
           "name": "Message",
           "description": "The message to send to the channel.",
-	  "example": "Hello from Home Assistant!"
+          "example": "Hello from Home Assistant!"
         },
         "entry_id": {
           "name": "Config Entry ID",
@@ -397,8 +421,8 @@
           "name": "Config Entry ID",
           "description": "The config entry ID if you have multiple MeshCore devices. Leave empty to use the first available device."
         }
-        }
-      },
+      }
+    },
     "execute_command": {
       "name": "Execute MeshCore Command",
       "description": "Execute a command provided by the MeshCore Python library. This is an advanced feature that provides direct access to the underlying commands interface. CAUTION: Some commands will make PERMANENT CHANGES to your node's configuration. Use with care.",
@@ -510,6 +534,44 @@
         "entry_id": {
           "name": "Config Entry ID",
           "description": "The config entry ID if you have multiple MeshCore devices. Leave empty to use the first available device."
+        }
+      }
+    },
+    "send_mcrpc": {
+      "name": "Send mcRPC",
+      "description": "Send an mcRPC request over a MeshCore channel.",
+      "fields": {
+        "target": {
+          "name": "Target",
+          "description": "Node name."
+        },
+        "command": {
+          "name": "Command",
+          "description": "mcRPC command."
+        },
+        "arguments": {
+          "name": "Arguments",
+          "description": "Optional arguments."
+        },
+        "request_id": {
+          "name": "Request ID",
+          "description": "Optional correlation id."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Reply timeout in seconds."
+        },
+        "broadcast": {
+          "name": "Broadcast",
+          "description": "Send to all nodes."
+        },
+        "channel_idx": {
+          "name": "Channel Index",
+          "description": "Channel to use."
+        },
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
         }
       }
     }

@@ -339,3 +339,72 @@ clear_discovered_contacts:
       example: "abc123def456"
       selector:
         text:
+
+send_mcrpc:
+  name: Send mcRPC
+  description: >-
+    Send an mcRPC request over a MeshCore channel (optional extension).
+    Enable mcRPC under Configure → Global Settings first.
+    The parsed reply is delivered as a meshcore_mcrpc_response event.
+  fields:
+    target:
+      name: Target
+      description: Node name (e.g. tracker). Ignored when Broadcast is enabled.
+      required: false
+      example: "tracker"
+      selector:
+        text:
+    command:
+      name: Command
+      description: mcRPC command (ping, status, discover, gps, battery, caps, help, …).
+      required: true
+      example: "ping"
+      selector:
+        text:
+    arguments:
+      name: Arguments
+      description: Optional arguments (space-separated string or list). For GPS use start, stop, once, stream, status.
+      required: false
+      example: "once"
+      selector:
+        text:
+    request_id:
+      name: Request ID
+      description: Optional correlation id. Auto-assigned when omitted.
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    timeout:
+      name: Timeout
+      description: Seconds to wait before firing a timeout response event.
+      required: false
+      example: 15
+      selector:
+        number:
+          min: 1
+          max: 120
+          mode: box
+    broadcast:
+      name: Broadcast
+      description: Address all nodes (target becomes "all").
+      required: false
+      default: false
+      selector:
+        boolean:
+    channel_idx:
+      name: Channel Index
+      description: Channel to send on (defaults to mcRPC default channel from settings).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    entry_id:
+      name: Config Entry ID
+      description: Config entry ID when multiple MeshCore devices are configured.
+      required: false
+      selector:
+        text:

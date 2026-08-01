@@ -42,6 +42,7 @@ SERVICE_GET_CONTACTS: Final = "get_contacts"
 SERVICE_GET_DISCOVERED_CONTACT: Final = "get_discovered_contact"
 SERVICE_GET_CHANNELS: Final = "get_channels"
 SERVICE_TRACE: Final = "trace"
+SERVICE_SEND_MCRPC: Final = "send_mcrpc"
 
 # Select entity placeholders
 SELECT_NO_CONTACTS: Final = "Select a contact..."
@@ -57,6 +58,23 @@ ATTR_SCOPE: Final = "scope"
 # When set on execute_command / execute_command_ui, the command/response pair is
 # recorded to the CLI Console transcript and the meshcore_cli_response event fires.
 ATTR_RECORD_TO_CONSOLE: Final = "record_to_console"
+ATTR_TARGET: Final = "target"
+ATTR_ARGUMENTS: Final = "arguments"
+ATTR_REQUEST_ID: Final = "request_id"
+ATTR_TIMEOUT: Final = "timeout"
+ATTR_BROADCAST: Final = "broadcast"
+
+# Optional mcRPC extension (default off — additive; no UX change until enabled)
+CONF_MCRPC_ENABLED: Final = "mcrpc_enabled"
+CONF_MCRPC_TIMEOUT: Final = "mcrpc_timeout"
+CONF_MCRPC_CHANNEL: Final = "mcrpc_channel"
+CONF_MCRPC_EVENT_BRIDGE: Final = "mcrpc_event_bridge"
+CONF_MCRPC_DEBUG: Final = "mcrpc_debug"
+CONF_MCRPC_ENTITY_BRIDGE: Final = "mcrpc_entity_bridge"
+DEFAULT_MCRPC_TIMEOUT: Final = 15
+DEFAULT_MCRPC_CHANNEL: Final = 0
+EVENT_MCRPC_RESPONSE: Final = f"{DOMAIN}_mcrpc_response"
+EVENT_MCRPC_EVENT: Final = f"{DOMAIN}_mcrpc_event"
 
 # Platform constants
 PLATFORM_MESSAGE: Final = "message"
