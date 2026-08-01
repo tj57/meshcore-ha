@@ -30,7 +30,10 @@ Core integration is powered by [meshcore-py](https://github.com/meshcore-dev/mes
 
 This fork adds optional [mesh node requests](docs/MCRPC.md) (`meshcore.request`,
 `meshcore.broadcast`, `meshcore_response` events, Node Registry, diagnostics).
-Disabled by default — enable under **Configure → Global Settings**.
+Disabled by default — enable under **Configure → Mesh Node Requests (mcRPC)**.
+
+Configure listening channels, addressing, allowed senders, and reply identity there.
+Secure defaults: no answer on Public, bare commands off.
 
 - Architecture: [ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md)
 - Roadmap: [ROADMAP_MCRPC.md](docs/ROADMAP_MCRPC.md)

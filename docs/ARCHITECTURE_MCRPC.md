@@ -57,10 +57,12 @@ meshcore_response  /  meshcore_event
 |---------|----------|
 | Wire grammar / builders / parsers | **`mcrpc` Python package** (internal) |
 | Channel send + wait + cache + HA events | `mcrpc_bridge.py` |
+| Listening / sender / addressing policy | `mcrpc_policy.py` |
 | Optional future entities | `mcrpc_entity_bridge.py` (stub, disabled) |
-| Config toggles | Global settings (“mesh node requests”) |
+| Config UI | Options → **Mesh Node Requests (mcRPC)** (`async_step_mcrpc_settings`) |
 | Public services | `request`, `broadcast`, `raw`, `list_nodes`, `has_capability` |
 | Debug | `send_mcrpc` (= `raw`) |
+| Reply identity | `mcrpc_reply_identity` (`self` or other entry_id) — multi-radio ready |
 
 ---
 
