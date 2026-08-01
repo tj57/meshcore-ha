@@ -1,0 +1,19 @@
+alias: Mesh broadcast status
+description: Collect status from all nodes into responses[]
+triggers: []
+conditions: []
+actions:
+  - action: meshcore.broadcast
+    data:
+      command: status
+      timeout: 8
+    response_variable: result
+  - action: persistent_notification.create
+    data:
+      title: Mesh status broadcast
+      message: >-
+        Heard {{ result.count }} node(s).
+        {% for r in result.responses %}
+        - {{ r.source }}: battery={{ r.battery }} rssi={{ r.rssi }} ({{ r.latency_ms }} ms)
+        {% endfor %}
+mode: single

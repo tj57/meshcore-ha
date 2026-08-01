@@ -1,202 +1,152 @@
 # Mesh node requests (Home Assistant)
 
-Optional extension of the MeshCore integration. **Disabled by default** — existing
-users see no change until they enable **Mesh node requests** under
-**Configure → Global Settings**.
+Optional extension of the MeshCore integration. **Disabled by default**.
 
-The wire protocol (mcRPC) is an **internal transport**. Automations should use the
-Home Assistant services and events below — not protocol details.
+The wire protocol (mcRPC) is an **internal transport**. Automations use Home Assistant
+services and events — not protocol details.
 
-See also [ARCHITECTURE_MCRPC.md](./ARCHITECTURE_MCRPC.md).
+| Doc | Topic |
+|-----|-------|
+| This file | Services, events, cache, examples |
+| [ARCHITECTURE_MCRPC.md](./ARCHITECTURE_MCRPC.md) | How the bridge attaches |
+| [ROADMAP_MCRPC.md](./ROADMAP_MCRPC.md) | Done / next |
+| [`examples/automations/`](../examples/automations/) | Ready-to-use YAML |
 
 ---
 
-## Services (public)
+## Architecture
 
-### `meshcore.request` — preferred
-
-```yaml
-service: meshcore.request
-data:
-  target: tracker
-  command: gps
-  args: once
-response_variable: gps
+```
+                    ┌─────────────────────────┐
+                    │   Home Assistant API    │
+                    │ request broadcast raw   │
+                    │ list_nodes has_capability│
+                    └───────────┬─────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │     McRpcBridge       │
+                    │  correlator · waiters │
+                    │  broadcast buckets    │
+                    └───────────┬───────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              ▼                 ▼                 ▼
+      Node Registry      Device Mapper     Diagnostics
+      (in-memory)        (preview only)    (download)
+              │
+              ▼
+         channel text  ←→  mcrpc package (internal)
 ```
 
-Then use `{{ gps.latitude }}`, `{{ gps.success }}`, etc.
+### Node Registry
+
+Each node keeps: id, name, profile, capabilities, firmware, protocol, sdk, battery,
+last_seen, RSSI, channel, discovered time, last status, extra fields.
+
+Updated from **discover / status / battery / events**. Unknown keys → `extra`.
+
+### Device Mapper
+
+`NodeDeviceMapper.to_device_info(node)` builds a future HA `DeviceInfo` dict.
+**No devices or entities are created yet.**
+
+---
+
+## Services
+
+### `meshcore.request`
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| `target` | — | Node name (required unless `broadcast`) |
-| `command` | — | `ping`, `gps`, `battery`, `status`, `discover`, `caps`, `help`, … |
-| `args` | — | Optional (`once`, `start`, `stop`, …) |
+| `target` | — | Required unless `broadcast` |
+| `command` | — | ping, gps, battery, status, discover, … |
+| `args` | — | Optional |
 | `timeout` | settings | Seconds |
-| `request_id` | auto | Correlation id |
-| `broadcast` | false | Same as `meshcore.broadcast` |
-| `channel` | settings | Channel index |
-| `wait` | **true** | Return parsed reply (for `response_variable`) |
+| `request_id` | auto | |
+| `broadcast` | false | |
+| `channel` | settings | |
+| `wait` | **true** | `false` = fire-and-forget |
+| `parse` | **true** | `false` = raw fields only |
+
+Fresh discover/status/battery/caps answers may be served from the **cache** (no radio).
 
 ### `meshcore.broadcast`
 
-```yaml
-service: meshcore.broadcast
-data:
-  command: discover
-response_variable: first
-```
-
-### `meshcore.raw` / `meshcore.send_mcrpc` (Advanced / Debug)
-
-Send arbitrary channel text for testing:
+When `wait=true`, returns:
 
 ```yaml
-service: meshcore.raw
-data:
-  message: "all discover"
+responses:
+  - source: tracker
+    request_id: 7
+    latency_ms: 312.5
+    parsed: { ... }
+    raw: "status name=tracker ..."
+count: 2
+success: true
 ```
 
-Prefer `request` / `broadcast` in real automations.
+### `meshcore.raw` / `meshcore.send_mcrpc` (Advanced)
+
+Arbitrary channel text for debugging.
 
 ### Cache helpers
 
-| Service | Purpose |
-|---------|---------|
-| `meshcore.list_nodes` | Cached discover / capabilities (no mesh traffic) |
-| `meshcore.has_capability` | `has: true/false` for a node + capability |
-
-```yaml
-service: meshcore.has_capability
-data:
-  target: tracker
-  capability: gps
-response_variable: check
-# {{ check.has }}
-```
+- `meshcore.list_nodes` — registry + device-mapper preview  
+- `meshcore.has_capability` — capability check without parsing text  
 
 ---
 
 ## Events
 
-| Event | When |
-|-------|------|
+| Event | Meaning |
+|-------|---------|
 | `meshcore_response` | Reply or timeout |
-| `meshcore_event` | Unsolicited device event (`button_pressed`, …) |
+| `meshcore_event` | Unsolicited device event |
 
-Legacy aliases `meshcore_mcrpc_response` / `meshcore_mcrpc_event` are still fired.
-
-Example payload (GPS):
-
-```yaml
-node: tracker
-command: gps
-success: true
-latitude: 50.12
-longitude: 19.93
-altitude: 12.5
-speed: 0.0
-heading: 90
-hdop: 1.2
-vdop: 1.5
-fix: fix
-extra: {}          # unknown future keys land here
-raw: "gps lat=..."
-request_id: 42
-```
+Legacy `meshcore_mcrpc_*` aliases still fire.
 
 ---
 
-## Automations
+## Diagnostics
 
-### Sync (recommended)
+**Settings → Devices & Services → MeshCore → Download diagnostics**
 
-```yaml
-alias: Get GPS
-sequence:
-  - service: meshcore.request
-    data:
-      target: lw010
-      command: gps
-      args: once
-    response_variable: gps
-  - condition: template
-    value_template: "{{ gps.success }}"
-  - service: notify.persistent_notification
-    data:
-      message: "{{ gps.latitude }}, {{ gps.longitude }}"
-```
+Includes: connected, transport, channel, last RX/TX, known nodes, capabilities,
+pending requests, timeouts, recent errors, parser statistics.
 
-### Async (event)
-
-```yaml
-alias: On mesh event
-trigger:
-  - platform: event
-    event_type: meshcore_event
-    event_data:
-      event: button_pressed
-action:
-  - service: light.toggle
-    target:
-      entity_id: light.workshop
-```
-
-### Capability-gated
-
-```yaml
-sequence:
-  - service: meshcore.broadcast
-    data:
-      command: discover
-    response_variable: _
-  - service: meshcore.has_capability
-    data:
-      target: tracker
-      capability: gps
-    response_variable: check
-  - condition: template
-    value_template: "{{ check.has }}"
-  - service: meshcore.request
-    data:
-      target: tracker
-      command: gps
-    response_variable: gps
-```
+(Screenshots depend on your HA UI theme — use Download diagnostics.)
 
 ---
 
-## Discover & capability cache
+## Examples
 
-1. `discover` / `caps` replies update an in-memory **capability registry**.
-2. `meshcore.list_nodes` and `meshcore.has_capability` read that cache — no extra airtime.
-3. Feature flags from discover (`gps=yes`) count as capabilities.
+See [`examples/automations/`](../examples/automations/):
 
-Full Device Registry / entity auto-creation remains behind the experimental
-entity bridge (off by default).
+| File | Purpose |
+|------|---------|
+| `ping.yaml` | Sync ping + notify |
+| `gps.yaml` | GPS once + coordinates |
+| `battery.yaml` | Periodic low-battery warn |
+| `broadcast_status.yaml` | Multi-node `responses[]` |
+| `capability_check.yaml` | discover → has gps → request |
 
----
+### Sync GPS (inline)
 
-## Configuration
-
-| Option | Default | User-facing meaning |
-|--------|---------|---------------------|
-| Enable mesh node requests | off | Master switch |
-| Default timeout | 15 s | Wait for replies |
-| Default channel | 0 | Channel for requests |
-| Event bridge | on | Fire `meshcore_response` / `meshcore_event` |
-| Debug logging | off | Extra logs |
-| Entity bridge | off | Future entities (noop stub) |
-
-Install the Python package once:
-
-```bash
-pip install -e /data/projects/mcrpc/python
+```yaml
+- action: meshcore.request
+  data:
+    target: lw010
+    command: gps
+    args: once
+  response_variable: gps
+- condition: template
+  value_template: "{{ gps.success }}"
 ```
 
 ---
 
 ## Compatibility
 
-- Existing MeshCore messaging, entities, and services are unchanged when disabled.
-- `meshcore.send_mcrpc` remains as an advanced/debug alias of `meshcore.raw`.
-- Protocol grammar is not redesigned — only the HA-facing API.
+- Existing MeshCore messaging/entities unchanged when node requests are off.
+- Public service names unchanged; new fields (`parse`) are optional with defaults.
+- Broadcast wait now returns `responses[]` (first reply still mirrored at top level).

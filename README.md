@@ -29,8 +29,12 @@ Core integration is powered by [meshcore-py](https://github.com/meshcore-dev/mes
 ### Optional: mesh node requests
 
 This fork adds optional [mesh node requests](docs/MCRPC.md) (`meshcore.request`,
-`meshcore.broadcast`, `meshcore_response` events). Disabled by default — enable under
-**Configure → Global Settings**. Architecture: [ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md).
+`meshcore.broadcast`, `meshcore_response` events, Node Registry, diagnostics).
+Disabled by default — enable under **Configure → Global Settings**.
+
+- Architecture: [ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md)
+- Roadmap: [ROADMAP_MCRPC.md](docs/ROADMAP_MCRPC.md)
+- Example automations: [`examples/automations/`](examples/automations/)
 
 ---
 

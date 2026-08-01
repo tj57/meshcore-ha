@@ -72,6 +72,7 @@ ATTR_REQUEST_ID: Final = "request_id"
 ATTR_TIMEOUT: Final = "timeout"
 ATTR_BROADCAST: Final = "broadcast"
 ATTR_WAIT: Final = "wait"
+ATTR_PARSE: Final = "parse"
 ATTR_CHANNEL: Final = "channel"  # preferred alias for channel_idx
 ATTR_CAPABILITY: Final = "capability"
 

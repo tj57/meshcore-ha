@@ -1,0 +1,28 @@
+alias: Mesh capability-gated GPS
+description: Discover once, then request GPS only if capability is present
+triggers: []
+conditions: []
+actions:
+  - action: meshcore.broadcast
+    data:
+      command: discover
+      timeout: 6
+    response_variable: disc
+  - action: meshcore.has_capability
+    data:
+      target: tracker
+      capability: gps
+    response_variable: check
+  - condition: template
+    value_template: "{{ check.has }}"
+  - action: meshcore.request
+    data:
+      target: tracker
+      command: gps
+      args: once
+    response_variable: gps
+  - action: persistent_notification.create
+    data:
+      title: Tracker GPS
+      message: "{{ gps.latitude }}, {{ gps.longitude }}"
+mode: single

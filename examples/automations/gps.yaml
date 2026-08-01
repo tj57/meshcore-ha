@@ -1,0 +1,21 @@
+alias: Mesh GPS once
+description: Request a GPS fix and show coordinates
+triggers: []
+conditions: []
+actions:
+  - action: meshcore.request
+    data:
+      target: lw010
+      command: gps
+      args: once
+      timeout: 20
+    response_variable: gps
+  - condition: template
+    value_template: "{{ gps.success and gps.latitude is not none }}"
+  - action: persistent_notification.create
+    data:
+      title: GPS fix
+      message: >-
+        {{ gps.latitude }}, {{ gps.longitude }}
+        (alt {{ gps.altitude }} · sats {{ gps.satellites }} · hdop {{ gps.hdop }})
+mode: single

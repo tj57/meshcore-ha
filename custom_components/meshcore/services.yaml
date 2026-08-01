@@ -404,7 +404,14 @@ request:
           mode: box
     wait:
       name: Wait for reply
-      description: When true (default), the service returns the parsed response for response_variable.
+      description: When true (default), the service returns the parsed response for response_variable. Set false for fire-and-forget.
+      required: false
+      default: true
+      selector:
+        boolean:
+    parse:
+      name: Parse response
+      description: When false, return raw reply fields only (no structured GPS/battery/status fields).
       required: false
       default: true
       selector:
@@ -420,7 +427,8 @@ broadcast:
   name: Broadcast
   description: >-
     Send a command to all listening nodes (discover, ping, …).
-    Returns the first correlated reply when Wait is enabled.
+    When Wait is enabled, collects simultaneous replies into responses[]
+    (each with source, request_id, latency, parsed, raw).
   fields:
     command:
       name: Command
