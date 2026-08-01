@@ -59,6 +59,9 @@ class McRpcPolicy:
         self.reply_identity = data.get(CONF_MCRPC_REPLY_IDENTITY, DEFAULT_MCRPC_REPLY_IDENTITY)
         self.answer_requests = bool(data.get(CONF_MCRPC_ANSWER_REQUESTS, True))
         self.local_name = (data.get(CONF_NAME) or "").strip()
+        # Optional extra aliases (e.g. on-device advertised name from coordinator)
+        extras = data.get("_mcrpc_name_aliases") or []
+        self.name_aliases = {str(a).strip().lower() for a in extras if str(a).strip()}
 
     def listening_channel_indexes(self) -> list[int] | None:
         """Return concrete indexes, or None meaning all channels."""
@@ -120,13 +123,15 @@ class McRpcPolicy:
             return True
         if kind == "Named":
             target = (req.target or "").strip().lower()
-            local = self.local_name.lower()
-            # Also accept common HA aliases
-            return target in {local, "ha", "homeassistant", "home-assistant"} if local else target in {
+            aliases = {
                 "ha",
                 "homeassistant",
                 "home-assistant",
+                *self.name_aliases,
             }
+            if self.local_name:
+                aliases.add(self.local_name.lower())
+            return target in aliases
         if kind == "Group":
             return False  # HA is not a group member by default
         return False

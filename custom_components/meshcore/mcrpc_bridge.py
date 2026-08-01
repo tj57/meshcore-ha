@@ -90,7 +90,11 @@ class McRpcBridge:
             "last_error": None,
             "recent_errors": [],
             "recent_denials": [],
+            "recent_traces": [],
         }
+        # Dedup keys for (channel, body, send_id/timestamp) recently answered
+        self._recent_answer_keys: dict[str, float] = {}
+        self._unsub_sent = None
 
     # ---- compat cache views (list_nodes / has_capability) --------------------
     @property
@@ -122,7 +126,25 @@ class McRpcBridge:
         return int(self.entry.data.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL))
 
     def policy(self) -> McRpcPolicy:
-        return McRpcPolicy(dict(self.entry.data), entry_id=self.entry.entry_id)
+        data = dict(self.entry.data)
+        aliases = []
+        coord_name = getattr(self.coordinator, "name", None)
+        if coord_name:
+            aliases.append(str(coord_name))
+        data["_mcrpc_name_aliases"] = aliases
+        return McRpcPolicy(data, entry_id=self.entry.entry_id)
+
+    def _trace(self, stage: str, **fields: Any) -> None:
+        """Structured receive-pipeline trace (always at INFO when debug, else DEBUG)."""
+        payload = {"stage": stage, **fields}
+        recent = list(self.stats.get("recent_traces") or [])
+        recent.append({"time": dt_util.utcnow().isoformat(), **payload})
+        self.stats["recent_traces"] = recent[-50:]
+        msg = "mcRPC TRACE %s %s", stage, {k: v for k, v in fields.items() if k != "raw_payload"}
+        if self.debug:
+            _LOGGER.info(*msg)
+        else:
+            _LOGGER.debug(*msg)
 
     def _contact_names(self) -> list[str]:
         names: list[str] = []
@@ -174,6 +196,11 @@ class McRpcBridge:
             self._unsub = self.hass.bus.async_listen(
                 EVENT_MESHCORE_MESSAGE, self._on_meshcore_message
             )
+            # Immediate path for Chat / send_channel_message (do not wait for
+            # outgoing meshcore_message terminal re-fire after RX_LOG).
+            self._unsub_sent = self.hass.bus.async_listen(
+                f"{DOMAIN}_message_sent", self._on_message_sent
+            )
 
         self._timeout_unsub = self.hass.loop.call_later(5.0, self._schedule_timeout_sweep)
 
@@ -189,6 +216,9 @@ class McRpcBridge:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if self._unsub_sent:
+            self._unsub_sent()
+            self._unsub_sent = None
         if self._timeout_unsub:
             self._timeout_unsub.cancel()
             self._timeout_unsub = None
@@ -932,6 +962,7 @@ class McRpcBridge:
                 "errors": self.stats.get("errors"),
             },
             "policy": pol.summary(),
+            "recent_traces": self.stats.get("recent_traces"),
             "device_mapper_preview": self.list_cached_nodes().get("devices_preview"),
         }
 
@@ -972,8 +1003,14 @@ class McRpcBridge:
         )
         from meshcore.events import EventType
 
-        if result.type == EventType.ERROR:
-            self._note_error(str(result.payload))
+        if getattr(result, "type", None) == EventType.ERROR:
+            self._note_error(str(getattr(result, "payload", "send_error")))
+            self._trace(
+                "tx_error",
+                channel_idx=channel_idx,
+                transmitted_payload=text,
+                error=str(getattr(result, "payload", "")),
+            )
             return
         self.stats["answered"] = int(self.stats["answered"]) + 1
         self.stats["tx_count"] = int(self.stats["tx_count"]) + 1
@@ -984,10 +1021,35 @@ class McRpcBridge:
             "reply": True,
             "reply_entry_id": reply_entry_id,
         }
+        self._trace(
+            "tx",
+            channel_idx=channel_idx,
+            transmitted_payload=text,
+            reply_entry_id=reply_entry_id,
+        )
 
     _BARE_COMMANDS = frozenset(
         {"ping", "status", "discover", "gps", "battery", "help", "caps", "voltage", "charging"}
     )
+
+    def _answer_dedup_key(
+        self, *, channel_idx: int, body: str, send_id: str | None, timestamp: str | None
+    ) -> str:
+        # Prefer send_id so message_sent + immediate meshcore_message collapse
+        if send_id:
+            return f"{channel_idx}|{body}|sid:{send_id}"
+        return f"{channel_idx}|{body}|ts:{timestamp or ''}"
+
+    def _already_answered(self, key: str) -> bool:
+        now = time.monotonic()
+        # Drop stale keys (>30s)
+        stale = [k for k, t in self._recent_answer_keys.items() if now - t > 30.0]
+        for k in stale:
+            self._recent_answer_keys.pop(k, None)
+        return key in self._recent_answer_keys
+
+    def _mark_answered(self, key: str) -> None:
+        self._recent_answer_keys[key] = time.monotonic()
 
     def _maybe_answer_inbound(
         self,
@@ -995,11 +1057,35 @@ class McRpcBridge:
         body: str,
         source: str | None,
         channel_idx: int,
+        message_type: str | None = None,
+        outgoing: bool = False,
+        send_id: str | None = None,
+        timestamp: str | None = None,
+        transport: str = "meshcore_message",
     ) -> None:
         """Evaluate policy and answer inbound requests when allowed."""
         assert self._mcrpc is not None
         pol = self.policy()
+        self._trace(
+            "answer_eval",
+            transport=transport,
+            raw_payload=body,
+            sender=source,
+            destination=None,
+            channel_idx=channel_idx,
+            message_type=message_type,
+            outgoing=outgoing,
+            normalized_text=body,
+        )
         if not pol.answer_requests:
+            self._trace("drop", reason="answer_requests_disabled", channel_idx=channel_idx)
+            return
+
+        dedup = self._answer_dedup_key(
+            channel_idx=int(channel_idx), body=body, send_id=send_id, timestamp=timestamp
+        )
+        if self._already_answered(dedup):
+            self._trace("drop", reason="duplicate", channel_idx=channel_idx, body=body)
             return
 
         parse_result, req = self._mcrpc.parse(body)
@@ -1017,6 +1103,7 @@ class McRpcBridge:
             elif parse_result == self._mcrpc.ParseResult.MissingTarget:
                 tokens = body.strip().split()
                 if not tokens:
+                    self._trace("drop", reason="empty_bare", channel_idx=channel_idx)
                     return
                 cmd_token = tokens[0]
                 if cmd_token.startswith("#") and len(tokens) > 1:
@@ -1027,7 +1114,23 @@ class McRpcBridge:
             else:
                 self.stats["parser_errors"] = int(self.stats["parser_errors"]) + 1
                 self.stats["parse_unknown"] = int(self.stats["parse_unknown"]) + 1
+                self._trace(
+                    "drop",
+                    reason="parser_reject",
+                    parser_result=parse_result.name,
+                    channel_idx=channel_idx,
+                    body=body,
+                )
                 return
+
+        self._trace(
+            "parser",
+            parser_result=parse_result.name if parse_ok else f"bare:{parse_result.name}",
+            destination=getattr(req, "target", None) or ("all" if parse_ok and getattr(req.address_kind, "name", "") == "All" else None),
+            command=getattr(req, "command", None),
+            address_kind=getattr(getattr(req, "address_kind", None), "name", None),
+            channel_idx=channel_idx,
+        )
 
         decision = pol.decide_inbound_request(
             channel_idx=channel_idx,
@@ -1036,6 +1139,14 @@ class McRpcBridge:
             parse_ok=parse_ok,
             contact_names=self._contact_names(),
         )
+        self._trace(
+            "dispatcher",
+            dispatcher_result=decision.reason,
+            addressing=decision.addressing,
+            allow=decision.allow,
+            channel_idx=channel_idx,
+            selected_handler=req.command if decision.allow else None,
+        )
         if not decision.allow:
             self._note_denial(
                 decision.reason, source=source, channel_idx=channel_idx
@@ -1043,7 +1154,53 @@ class McRpcBridge:
             return
 
         reply = self._build_answer_body(req)
+        self._mark_answered(dedup)
+        self._trace(
+            "response",
+            generated_response=reply,
+            transmitted_payload=reply,
+            channel_idx=channel_idx,
+            selected_handler=req.command,
+        )
         self.hass.async_create_task(self._async_send_answer(int(channel_idx), reply))
+
+    @callback
+    def _on_message_sent(self, event: Event) -> None:
+        """Fast path: HA Chat / send_channel_message → answer without 4s delay."""
+        data = event.data or {}
+        if data.get("device") != self.entry.entry_id:
+            return
+        if data.get("message_type") != "channel":
+            return
+        if not self._correlator or not self._mcrpc:
+            return
+        raw = (data.get("message") or "").strip()
+        if not raw:
+            return
+        body = self._mcrpc.strip_sender_prefix(raw)
+        if self._correlator.is_outbound_echo(body):
+            self._trace("drop", reason="outbound_echo", transport="message_sent", body=body)
+            return
+        self._trace(
+            "rx",
+            transport="message_sent",
+            raw_payload=raw,
+            sender=self.entry.data.get("name"),
+            channel_idx=data.get("channel_idx", self.default_channel),
+            message_type="channel",
+            outgoing=True,
+            normalized_text=body,
+        )
+        self._maybe_answer_inbound(
+            body=body,
+            source=self.entry.data.get("name"),
+            channel_idx=int(data.get("channel_idx", self.default_channel)),
+            message_type="channel",
+            outgoing=True,
+            send_id=data.get("send_id"),
+            timestamp=str(data.get("send_timestamp") or data.get("timestamp") or ""),
+            transport="message_sent",
+        )
 
     @callback
     def _on_meshcore_message(self, event: Event) -> None:
@@ -1052,8 +1209,19 @@ class McRpcBridge:
         if not raw or not self._correlator or not self._mcrpc:
             return
 
+        # Terminal outgoing re-fire after RX_LOG — already handled via message_sent
+        if data.get("outgoing") and data.get("rx_log_data") is not None:
+            self._trace(
+                "drop",
+                reason="outgoing_terminal_refire",
+                channel_idx=data.get("channel_idx"),
+                body=raw,
+            )
+            return
+
         body = self._mcrpc.strip_sender_prefix(raw)
         if self._correlator.is_outbound_echo(body):
+            self._trace("drop", reason="outbound_echo", transport="meshcore_message", body=body)
             return
 
         kind, response, evt, pending = self._correlator.classify_inbound(body)
@@ -1061,6 +1229,21 @@ class McRpcBridge:
         channel_idx = data.get("channel_idx", self.default_channel)
         ts = data.get("timestamp") or dt_util.utcnow().isoformat()
         rssi = data.get("rssi") or data.get("RSSI")
+
+        self._trace(
+            "rx",
+            transport="meshcore_message",
+            raw_payload=raw,
+            sender=source,
+            destination=None,
+            channel_idx=channel_idx,
+            message_type=data.get("message_type"),
+            outgoing=bool(data.get("outgoing")),
+            normalized_text=body,
+            classify_kind=kind,
+            response_kind=getattr(getattr(response, "kind", None), "name", None),
+            pending=bool(pending),
+        )
 
         self.stats["rx_count"] = int(self.stats["rx_count"]) + 1
         self.stats["last_rx"] = {
@@ -1110,7 +1293,14 @@ class McRpcBridge:
             # Unmatched Unknown → may be an inbound request instead.
             if response.kind.name == "Unknown" and pending is None:
                 self._maybe_answer_inbound(
-                    body=body, source=source, channel_idx=int(channel_idx)
+                    body=body,
+                    source=source,
+                    channel_idx=int(channel_idx),
+                    message_type=data.get("message_type"),
+                    outgoing=bool(data.get("outgoing")),
+                    send_id=data.get("send_id"),
+                    timestamp=ts,
+                    transport="meshcore_message",
                 )
                 return
 
@@ -1183,7 +1373,14 @@ class McRpcBridge:
 
         # Not classified as response/event — try inbound request
         self._maybe_answer_inbound(
-            body=body, source=source, channel_idx=int(channel_idx)
+            body=body,
+            source=source,
+            channel_idx=int(channel_idx),
+            message_type=data.get("message_type"),
+            outgoing=bool(data.get("outgoing")),
+            send_id=data.get("send_id"),
+            timestamp=ts,
+            transport="meshcore_message",
         )
 
     def last_response(self, command: str) -> dict[str, Any] | None:
