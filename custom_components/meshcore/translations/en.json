@@ -171,13 +171,7 @@
           "auto_cleanup_stale_neighbors": "Auto-Remove Stale Neighbors",
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
-          "flood_scopes": "Flood Scope Allowlist",
-          "mcrpc_enabled": "Enable mesh node requests",
-          "mcrpc_timeout": "Node request timeout (seconds)",
-          "mcrpc_channel": "Node request default channel",
-          "mcrpc_event_bridge": "Enable mesh response events",
-          "mcrpc_debug": "Debug logging for node requests",
-          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
+          "flood_scopes": "Flood Scope Allowlist"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -188,16 +182,48 @@
           "auto_cleanup_stale_neighbors": "Automatically remove neighbor entries and their sensor entities when they haven't been heard from in the configured number of days.",
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
-          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
+          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching."
+        },
+        "description": "Configure global integration settings",
+        "title": "Global Settings"
+      },
+      "mcrpc_settings": {
+        "data": {
+          "mcrpc_enabled": "Enable Mesh Node Requests",
+          "mcrpc_answer_requests": "Answer inbound requests",
+          "mcrpc_listen_mode": "Listening channels",
+          "mcrpc_listen_channels": "Selected channels",
+          "mcrpc_channel": "Default TX / current channel index",
+          "mcrpc_accept_broadcast": "Accept broadcast (all …)",
+          "mcrpc_accept_addressed": "Accept addressed commands",
+          "mcrpc_accept_bare": "Accept bare commands",
+          "mcrpc_sender_mode": "Allowed senders",
+          "mcrpc_allow_list": "Allow list (node names or IDs)",
+          "mcrpc_reply_identity": "Reply identity",
+          "mcrpc_timeout": "Request timeout (seconds)",
+          "mcrpc_event_bridge": "Enable mesh response events",
+          "mcrpc_debug": "Debug logging for node requests",
+          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
+        },
+        "data_description": {
           "mcrpc_enabled": "Optional mesh node commands (ping, GPS, battery, discover). Off by default — existing MeshCore behaviour is unchanged.",
+          "mcrpc_answer_requests": "When enabled, Home Assistant may reply to inbound mesh requests that pass the filters below.",
+          "mcrpc_listen_mode": "Where HA accepts inbound mcRPC. Secure default: Selected channels (empty until you pick private channels). Public (0) is not selected by default.",
+          "mcrpc_listen_channels": "Used when Listening channels is Selected channels. Labels show names; only indexes are stored.",
+          "mcrpc_channel": "Default channel for outbound meshcore.request / broadcast / raw, and the channel used by Current channel listen mode.",
+          "mcrpc_accept_broadcast": "Answer requests addressed to all. Default: on.",
+          "mcrpc_accept_addressed": "Answer requests addressed to this node (or ha / homeassistant). Default: on.",
+          "mcrpc_accept_bare": "Answer command-only lines without a target (e.g. ping). Default: off.",
+          "mcrpc_sender_mode": "Any node, Contacts only, or Allow list.",
+          "mcrpc_allow_list": "One name or ID per line (or comma-separated). Used when Allowed senders is Allow list.",
+          "mcrpc_reply_identity": "Which local MeshCore radio identity sends replies. Prepared for multiple radios.",
           "mcrpc_timeout": "How long meshcore.request waits for a reply before returning a timeout (1–120 seconds).",
-          "mcrpc_channel": "Default channel index used by meshcore.request / broadcast / raw.",
           "mcrpc_event_bridge": "Fire meshcore_response and meshcore_event when channel replies arrive.",
           "mcrpc_debug": "Extra debug logs for request/response correlation.",
           "mcrpc_entity_bridge": "Reserved for future sensors/trackers. Currently a no-op; leave off."
         },
-        "description": "Configure global integration settings",
-        "title": "Global Settings"
+        "description": "Configure Mesh Node Requests (mcRPC): listening channels, addressing, senders, and reply identity.",
+        "title": "Mesh Node Requests (mcRPC)"
       },
       "mqtt_brokers": {
         "data": {
@@ -314,13 +340,7 @@
           "auto_cleanup_stale_neighbors": "Auto-Remove Stale Neighbors",
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
-          "flood_scopes": "Flood Scope Allowlist",
-          "mcrpc_enabled": "Enable mesh node requests",
-          "mcrpc_timeout": "Node request timeout (seconds)",
-          "mcrpc_channel": "Node request default channel",
-          "mcrpc_event_bridge": "Enable mesh response events",
-          "mcrpc_debug": "Debug logging for node requests",
-          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
+          "flood_scopes": "Flood Scope Allowlist"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -331,13 +351,7 @@
           "auto_cleanup_stale_neighbors": "Automatically remove neighbor entries and their sensor entities when they haven't been heard from in the configured number of days.",
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
-          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
-          "mcrpc_enabled": "Optional mesh node commands (ping, GPS, battery, discover). Off by default — existing MeshCore behaviour is unchanged.",
-          "mcrpc_timeout": "How long meshcore.request waits for a reply before returning a timeout (1–120 seconds).",
-          "mcrpc_channel": "Default channel index used by meshcore.request / broadcast / raw.",
-          "mcrpc_event_bridge": "Fire meshcore_response and meshcore_event when channel replies arrive.",
-          "mcrpc_debug": "Extra debug logs for request/response correlation.",
-          "mcrpc_entity_bridge": "Reserved for future sensors/trackers. Currently a no-op; leave off."
+          "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching."
         },
         "description": "Configure global integration settings",
         "title": "Global Settings"
@@ -376,6 +390,44 @@
         },
         "description": "Configure MQTT broker {broker_number}",
         "title": "MQTT Broker Settings"
+      },
+      "mcrpc_settings": {
+        "data": {
+          "mcrpc_enabled": "Enable Mesh Node Requests",
+          "mcrpc_answer_requests": "Answer inbound requests",
+          "mcrpc_listen_mode": "Listening channels",
+          "mcrpc_listen_channels": "Selected channels",
+          "mcrpc_channel": "Default TX / current channel index",
+          "mcrpc_accept_broadcast": "Accept broadcast (all …)",
+          "mcrpc_accept_addressed": "Accept addressed commands",
+          "mcrpc_accept_bare": "Accept bare commands",
+          "mcrpc_sender_mode": "Allowed senders",
+          "mcrpc_allow_list": "Allow list (node names or IDs)",
+          "mcrpc_reply_identity": "Reply identity",
+          "mcrpc_timeout": "Request timeout (seconds)",
+          "mcrpc_event_bridge": "Enable mesh response events",
+          "mcrpc_debug": "Debug logging for node requests",
+          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
+        },
+        "data_description": {
+          "mcrpc_enabled": "Optional mesh node commands (ping, GPS, battery, discover). Off by default — existing MeshCore behaviour is unchanged.",
+          "mcrpc_answer_requests": "When enabled, Home Assistant may reply to inbound mesh requests that pass the filters below.",
+          "mcrpc_listen_mode": "Where HA accepts inbound mcRPC. Secure default: Selected channels (empty until you pick private channels). Public (0) is not selected by default.",
+          "mcrpc_listen_channels": "Used when Listening channels is Selected channels. Labels show names; only indexes are stored.",
+          "mcrpc_channel": "Default channel for outbound meshcore.request / broadcast / raw, and the channel used by Current channel listen mode.",
+          "mcrpc_accept_broadcast": "Answer requests addressed to all. Default: on.",
+          "mcrpc_accept_addressed": "Answer requests addressed to this node (or ha / homeassistant). Default: on.",
+          "mcrpc_accept_bare": "Answer command-only lines without a target (e.g. ping). Default: off.",
+          "mcrpc_sender_mode": "Any node, Contacts only, or Allow list.",
+          "mcrpc_allow_list": "One name or ID per line (or comma-separated). Used when Allowed senders is Allow list.",
+          "mcrpc_reply_identity": "Which local MeshCore radio identity sends replies. Prepared for multiple radios.",
+          "mcrpc_timeout": "How long meshcore.request waits for a reply before returning a timeout (1–120 seconds).",
+          "mcrpc_event_bridge": "Fire meshcore_response and meshcore_event when channel replies arrive.",
+          "mcrpc_debug": "Extra debug logs for request/response correlation.",
+          "mcrpc_entity_bridge": "Reserved for future sensors/trackers. Currently a no-op; leave off."
+        },
+        "description": "Configure Mesh Node Requests (mcRPC): listening channels, addressing, senders, and reply identity.",
+        "title": "Mesh Node Requests (mcRPC)"
       }
     }
   },
@@ -859,6 +911,21 @@
         "full": "Entity per contact",
         "data_only": "Data only",
         "off": "Disabled"
+      }
+    },
+    "mcrpc_listen_mode": {
+      "options": {
+        "disabled": "Disabled",
+        "current": "Current channel",
+        "selected": "Selected channels",
+        "all": "All channels"
+      }
+    },
+    "mcrpc_sender_mode": {
+      "options": {
+        "any": "Any node",
+        "contacts": "Contacts only",
+        "allowlist": "Allow list"
       }
     }
   }

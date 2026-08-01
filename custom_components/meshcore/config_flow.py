@@ -78,8 +78,27 @@ from .const import (
     CONF_MCRPC_EVENT_BRIDGE,
     CONF_MCRPC_DEBUG,
     CONF_MCRPC_ENTITY_BRIDGE,
+    CONF_MCRPC_LISTEN_MODE,
+    CONF_MCRPC_LISTEN_CHANNELS,
+    CONF_MCRPC_ACCEPT_BROADCAST,
+    CONF_MCRPC_ACCEPT_ADDRESSED,
+    CONF_MCRPC_ACCEPT_BARE,
+    CONF_MCRPC_SENDER_MODE,
+    CONF_MCRPC_ALLOW_LIST,
+    CONF_MCRPC_REPLY_IDENTITY,
+    CONF_MCRPC_ANSWER_REQUESTS,
     DEFAULT_MCRPC_TIMEOUT,
     DEFAULT_MCRPC_CHANNEL,
+    DEFAULT_MCRPC_LISTEN_MODE,
+    DEFAULT_MCRPC_ACCEPT_BROADCAST,
+    DEFAULT_MCRPC_ACCEPT_ADDRESSED,
+    DEFAULT_MCRPC_ACCEPT_BARE,
+    DEFAULT_MCRPC_SENDER_MODE,
+    DEFAULT_MCRPC_REPLY_IDENTITY,
+    DEFAULT_MCRPC_ANSWER_REQUESTS,
+    MCRPC_LISTEN_MODES,
+    MCRPC_SENDER_MODES,
+    migrate_mcrpc_config,
     CONF_MQTT_IATA,
     CONF_MQTT_TOKEN_TTL_SECONDS,
     CONF_MQTT_BROKERS,
@@ -146,6 +165,36 @@ def _contact_discovery_mode_selector() -> SelectSelector:
             translation_key="contact_discovery_mode",
         )
     )
+
+
+def _mcrpc_listen_mode_selector() -> SelectSelector:
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=list(MCRPC_LISTEN_MODES),
+            mode=SelectSelectorMode.DROPDOWN,
+            translation_key="mcrpc_listen_mode",
+        )
+    )
+
+
+def _mcrpc_sender_mode_selector() -> SelectSelector:
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=list(MCRPC_SENDER_MODES),
+            mode=SelectSelectorMode.DROPDOWN,
+            translation_key="mcrpc_sender_mode",
+        )
+    )
+
+
+def _format_channel_option_label(idx: int, channel_name: str | None) -> str:
+    """UI label only — stored config keeps integer indexes."""
+    name = (channel_name or "").strip()
+    if not name or name == "(unused)":
+        name = "Public" if idx == 0 else f"{idx}"
+    if idx == 0 and name.lower() == "public":
+        name = "Public"
+    return f"Channel {idx} ({name})"
 
 
 async def validate_common(api: MeshCoreAPI) -> Dict[str, Any]:
@@ -220,7 +269,7 @@ async def validate_tcp_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[
 class MeshCoreConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignore
     """Handle a config flow for MeshCore."""
 
-    VERSION = 3
+    VERSION = 4
 
     def __init__(self) -> None:
         """Initialize flow."""
@@ -565,6 +614,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_manage_devices()
             elif action == "global_settings":
                 return await self.async_step_global_settings()
+            elif action == "mcrpc_settings":
+                return await self.async_step_mcrpc_settings()
             elif action == "mqtt_brokers":
                 return await self.async_step_mqtt_brokers()
             else:
@@ -595,6 +646,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "add_client": "Add Tracked Client", 
                 "manage_devices": "Manage Monitored Devices",
                 "global_settings": "Global Settings",
+                "mcrpc_settings": "Mesh Node Requests (mcRPC)",
                 "mqtt_brokers": "Manage MQTT Brokers",
             })
         })
@@ -947,12 +999,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             new_data[CONF_FLOOD_SCOPES] = user_input.get(CONF_FLOOD_SCOPES, "")
             new_data[CONF_AUTO_CLEANUP_STALE_NEIGHBORS] = user_input[CONF_AUTO_CLEANUP_STALE_NEIGHBORS]
             new_data[CONF_STALE_NEIGHBOR_DAYS] = user_input[CONF_STALE_NEIGHBOR_DAYS]
-            new_data[CONF_MCRPC_ENABLED] = user_input[CONF_MCRPC_ENABLED]
-            new_data[CONF_MCRPC_TIMEOUT] = user_input[CONF_MCRPC_TIMEOUT]
-            new_data[CONF_MCRPC_CHANNEL] = user_input[CONF_MCRPC_CHANNEL]
-            new_data[CONF_MCRPC_EVENT_BRIDGE] = user_input[CONF_MCRPC_EVENT_BRIDGE]
-            new_data[CONF_MCRPC_DEBUG] = user_input[CONF_MCRPC_DEBUG]
-            new_data[CONF_MCRPC_ENTITY_BRIDGE] = user_input[CONF_MCRPC_ENTITY_BRIDGE]
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data) # type: ignore
 
             if new_data[CONF_LIMIT_DISCOVERED_CONTACTS]:
@@ -979,12 +1025,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         current_auto_cleanup_neighbors = self.config_entry.data.get(CONF_AUTO_CLEANUP_STALE_NEIGHBORS, False)
         current_stale_neighbor_days = self.config_entry.data.get(CONF_STALE_NEIGHBOR_DAYS, DEFAULT_STALE_NEIGHBOR_DAYS)
         current_flood_scopes = self.config_entry.data.get(CONF_FLOOD_SCOPES, "")
-        current_mcrpc_enabled = self.config_entry.data.get(CONF_MCRPC_ENABLED, False)
-        current_mcrpc_timeout = self.config_entry.data.get(CONF_MCRPC_TIMEOUT, DEFAULT_MCRPC_TIMEOUT)
-        current_mcrpc_channel = self.config_entry.data.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL)
-        current_mcrpc_event_bridge = self.config_entry.data.get(CONF_MCRPC_EVENT_BRIDGE, True)
-        current_mcrpc_debug = self.config_entry.data.get(CONF_MCRPC_DEBUG, False)
-        current_mcrpc_entity_bridge = self.config_entry.data.get(CONF_MCRPC_ENTITY_BRIDGE, False)
 
         return self.async_show_form(
             step_id="global_settings",
@@ -1004,13 +1044,163 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_FLOOD_SCOPES, default=current_flood_scopes): str,
                 vol.Optional(CONF_AUTO_CLEANUP_STALE_NEIGHBORS, default=current_auto_cleanup_neighbors): cv.boolean,
                 vol.Optional(CONF_STALE_NEIGHBOR_DAYS, default=current_stale_neighbor_days): vol.All(cv.positive_int, vol.Range(min=1, max=365)),
-                vol.Optional(CONF_MCRPC_ENABLED, default=current_mcrpc_enabled): cv.boolean,
-                vol.Optional(CONF_MCRPC_TIMEOUT, default=current_mcrpc_timeout): vol.All(cv.positive_int, vol.Range(min=1, max=120)),
-                vol.Optional(CONF_MCRPC_CHANNEL, default=current_mcrpc_channel): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
-                vol.Optional(CONF_MCRPC_EVENT_BRIDGE, default=current_mcrpc_event_bridge): cv.boolean,
-                vol.Optional(CONF_MCRPC_DEBUG, default=current_mcrpc_debug): cv.boolean,
-                vol.Optional(CONF_MCRPC_ENTITY_BRIDGE, default=current_mcrpc_entity_bridge): cv.boolean,
             }),
+        )
+
+    def _mcrpc_channel_options(self) -> list[dict[str, str]]:
+        """Build channel selector options from coordinator cache (+ common indexes)."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        info_map = getattr(coordinator, "_channel_info", None) or {}
+        indexes = set(range(0, 8))
+        indexes.update(int(k) for k in info_map.keys())
+        for idx in self.config_entry.data.get(CONF_MCRPC_LISTEN_CHANNELS, []) or []:
+            indexes.add(int(idx))
+        options: list[dict[str, str]] = []
+        for idx in sorted(indexes):
+            name = (info_map.get(idx) or {}).get("channel_name")
+            options.append(
+                {
+                    "value": str(idx),
+                    "label": _format_channel_option_label(idx, name),
+                }
+            )
+        return options
+
+    def _mcrpc_reply_identity_options(self) -> dict[str, str]:
+        """Map reply identity values → labels (self + other MeshCore entries)."""
+        options = {"self": f"This radio ({self.config_entry.data.get(CONF_NAME) or self.config_entry.title})"}
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.entry_id == self.config_entry.entry_id:
+                continue
+            label = entry.data.get(CONF_NAME) or entry.title or entry.entry_id[:8]
+            options[entry.entry_id] = f"{label} ({entry.entry_id[:8]})"
+        return options
+
+    async def async_step_mcrpc_settings(self, user_input=None):
+        """Mesh Node Requests (mcRPC) configuration section."""
+        if user_input is not None:
+            new_data = migrate_mcrpc_config(copy.deepcopy(dict(self.config_entry.data)))
+            new_data[CONF_MCRPC_ENABLED] = user_input[CONF_MCRPC_ENABLED]
+            new_data[CONF_MCRPC_TIMEOUT] = user_input[CONF_MCRPC_TIMEOUT]
+            new_data[CONF_MCRPC_CHANNEL] = user_input[CONF_MCRPC_CHANNEL]
+            new_data[CONF_MCRPC_EVENT_BRIDGE] = user_input[CONF_MCRPC_EVENT_BRIDGE]
+            new_data[CONF_MCRPC_DEBUG] = user_input[CONF_MCRPC_DEBUG]
+            new_data[CONF_MCRPC_ENTITY_BRIDGE] = user_input[CONF_MCRPC_ENTITY_BRIDGE]
+            new_data[CONF_MCRPC_LISTEN_MODE] = user_input[CONF_MCRPC_LISTEN_MODE]
+            selected = user_input.get(CONF_MCRPC_LISTEN_CHANNELS) or []
+            new_data[CONF_MCRPC_LISTEN_CHANNELS] = [int(x) for x in selected]
+            new_data[CONF_MCRPC_ACCEPT_BROADCAST] = user_input[CONF_MCRPC_ACCEPT_BROADCAST]
+            new_data[CONF_MCRPC_ACCEPT_ADDRESSED] = user_input[CONF_MCRPC_ACCEPT_ADDRESSED]
+            new_data[CONF_MCRPC_ACCEPT_BARE] = user_input[CONF_MCRPC_ACCEPT_BARE]
+            new_data[CONF_MCRPC_SENDER_MODE] = user_input[CONF_MCRPC_SENDER_MODE]
+            allow_raw = user_input.get(CONF_MCRPC_ALLOW_LIST, "") or ""
+            if isinstance(allow_raw, list):
+                allow = [str(a).strip() for a in allow_raw if str(a).strip()]
+            else:
+                allow = [
+                    a.strip()
+                    for a in str(allow_raw).replace(",", "\n").splitlines()
+                    if a.strip()
+                ]
+            new_data[CONF_MCRPC_ALLOW_LIST] = allow
+            new_data[CONF_MCRPC_REPLY_IDENTITY] = user_input[CONF_MCRPC_REPLY_IDENTITY]
+            new_data[CONF_MCRPC_ANSWER_REQUESTS] = user_input[CONF_MCRPC_ANSWER_REQUESTS]
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return await self.async_step_init()
+
+        data = migrate_mcrpc_config(dict(self.config_entry.data))
+        channel_options = self._mcrpc_channel_options()
+        current_listen = [str(c) for c in data.get(CONF_MCRPC_LISTEN_CHANNELS, [])]
+        # Keep previously selected indexes even if missing from radio cache
+        known_values = {o["value"] for o in channel_options}
+        for c in current_listen:
+            if c not in known_values:
+                channel_options.append(
+                    {"value": c, "label": _format_channel_option_label(int(c), None)}
+                )
+                known_values.add(c)
+        identity_options = self._mcrpc_reply_identity_options()
+        current_identity = data.get(CONF_MCRPC_REPLY_IDENTITY, DEFAULT_MCRPC_REPLY_IDENTITY)
+        if current_identity not in identity_options:
+            current_identity = DEFAULT_MCRPC_REPLY_IDENTITY
+        allow_default = "\n".join(data.get(CONF_MCRPC_ALLOW_LIST, []) or [])
+
+        return self.async_show_form(
+            step_id="mcrpc_settings",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_MCRPC_ENABLED,
+                        default=bool(data.get(CONF_MCRPC_ENABLED, False)),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_ANSWER_REQUESTS,
+                        default=bool(
+                            data.get(CONF_MCRPC_ANSWER_REQUESTS, DEFAULT_MCRPC_ANSWER_REQUESTS)
+                        ),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_LISTEN_MODE,
+                        default=data.get(CONF_MCRPC_LISTEN_MODE, DEFAULT_MCRPC_LISTEN_MODE),
+                    ): _mcrpc_listen_mode_selector(),
+                    vol.Optional(
+                        CONF_MCRPC_LISTEN_CHANNELS,
+                        default=current_listen,
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=channel_options,
+                            mode=SelectSelectorMode.DROPDOWN,
+                            multiple=True,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_MCRPC_CHANNEL,
+                        default=int(data.get(CONF_MCRPC_CHANNEL, DEFAULT_MCRPC_CHANNEL)),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+                    vol.Optional(
+                        CONF_MCRPC_ACCEPT_BROADCAST,
+                        default=bool(
+                            data.get(CONF_MCRPC_ACCEPT_BROADCAST, DEFAULT_MCRPC_ACCEPT_BROADCAST)
+                        ),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_ACCEPT_ADDRESSED,
+                        default=bool(
+                            data.get(CONF_MCRPC_ACCEPT_ADDRESSED, DEFAULT_MCRPC_ACCEPT_ADDRESSED)
+                        ),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_ACCEPT_BARE,
+                        default=bool(data.get(CONF_MCRPC_ACCEPT_BARE, DEFAULT_MCRPC_ACCEPT_BARE)),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_SENDER_MODE,
+                        default=data.get(CONF_MCRPC_SENDER_MODE, DEFAULT_MCRPC_SENDER_MODE),
+                    ): _mcrpc_sender_mode_selector(),
+                    vol.Optional(CONF_MCRPC_ALLOW_LIST, default=allow_default): str,
+                    vol.Optional(
+                        CONF_MCRPC_REPLY_IDENTITY,
+                        default=current_identity,
+                    ): vol.In(identity_options),
+                    vol.Optional(
+                        CONF_MCRPC_TIMEOUT,
+                        default=int(data.get(CONF_MCRPC_TIMEOUT, DEFAULT_MCRPC_TIMEOUT)),
+                    ): vol.All(cv.positive_int, vol.Range(min=1, max=120)),
+                    vol.Optional(
+                        CONF_MCRPC_EVENT_BRIDGE,
+                        default=bool(data.get(CONF_MCRPC_EVENT_BRIDGE, True)),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_DEBUG,
+                        default=bool(data.get(CONF_MCRPC_DEBUG, False)),
+                    ): cv.boolean,
+                    vol.Optional(
+                        CONF_MCRPC_ENTITY_BRIDGE,
+                        default=bool(data.get(CONF_MCRPC_ENTITY_BRIDGE, False)),
+                    ): cv.boolean,
+                }
+            ),
         )
 
     def _get_mqtt_brokers_data(self) -> Dict[str, Dict[str, Any]]:
