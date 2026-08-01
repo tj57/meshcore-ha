@@ -45,12 +45,14 @@ send_chan_msg(channel_idx, "tracker#42 gps")
    MeshCore radio / channel text
         │
 CHANNEL_MSG_RECV → meshcore_message
+send_channel_message → meshcore_message_sent (+ immediate meshcore_message)
         │
-McRpcBridge classifies (response | event) + capability cache
-        │
+McRpcBridge classifies (response | event) + McRpcPolicy
+        │  (answers Chat / channel requests when policy allows)
         ▼
 meshcore_response  /  meshcore_event
 (+ legacy meshcore_mcrpc_* aliases)
+send_chan_msg(reply) → MeshCore Chat
 ```
 
 | Concern | Location |

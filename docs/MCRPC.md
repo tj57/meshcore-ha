@@ -191,6 +191,29 @@ See [`examples/automations/`](../examples/automations/).
 
 ---
 
+## Chat transport (MeshCore Chat UI)
+
+Inbound answers are driven by the real channel receive path — not only by
+`meshcore.request` / `meshcore.raw`.
+
+| Source | Path into mcRPC |
+|--------|-----------------|
+| Remote MeshCore Chat | `CHANNEL_MSG_RECV` → logbook → `meshcore_message` |
+| Local HA Chat / `send_channel_message` | `meshcore_message_sent` (immediate) + initial `meshcore_message` |
+
+Wire text from Chat is typically `Name: all ping`. Logbook strips the sender
+prefix; the body must match what `meshcore.raw` would send (`all ping`).
+
+Enable **Debug logging for node requests** to emit `mcRPC TRACE` stages:
+`rx` → `parser` → `dispatcher` → `response` → `tx` (also in diagnostics
+`recent_traces`).
+
+Typed examples that must work when policy allows:
+
+- `mcYogi ping` / `mcYogi status` — when HA local name (or alias) is `mcYogi`
+- `all ping` / `all discover` — broadcast
+- bare `ping` — only if **Accept bare commands** is enabled
+
 ## Compatibility
 
 - Existing MeshCore messaging/entities unchanged when node requests are off.
