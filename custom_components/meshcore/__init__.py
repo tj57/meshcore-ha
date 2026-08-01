@@ -43,10 +43,12 @@ from .const import (
     DEFAULT_UPDATE_TICK,
     REPAIR_PUBKEY_CHANGED,
     CONF_CONTACT_DISCOVERY_MODE,
+    CONF_MCRPC_LISTEN_MODE,
     MODE_FULL,
     MODE_DATA_ONLY,
     MODE_OFF,
     get_contact_discovery_mode,
+    migrate_mcrpc_config,
 )
 from .coordinator import MeshCoreDataUpdateCoordinator
 from .meshcore_api import MeshCoreAPI
@@ -84,7 +86,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     _LOGGER.debug("Migrating configuration from version %s", config_entry.version)
     
     # Don't allow downgrading from future versions
-    if config_entry.version > 3:
+    if config_entry.version > 4:
         _LOGGER.error("Cannot downgrade from version %s", config_entry.version)
         return False
     
@@ -132,6 +134,16 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
         new_data[CONF_CONTACT_DISCOVERY_MODE] = mode
         hass.config_entries.async_update_entry(config_entry, data=new_data, version=3)
         _LOGGER.info("Migrated contact-discovery settings to %s (version 3)", mode)
+
+    # Version 4: Mesh Node Requests (mcRPC) listening / security section.
+    # Preserves prior behaviour when mcrpc_enabled was already true.
+    if config_entry.version == 3:
+        new_data = migrate_mcrpc_config(dict(config_entry.data))
+        hass.config_entries.async_update_entry(config_entry, data=new_data, version=4)
+        _LOGGER.info(
+            "Migrated Mesh Node Requests settings (listen_mode=%s)",
+            new_data.get(CONF_MCRPC_LISTEN_MODE),
+        )
 
     _LOGGER.debug("Migration to configuration version %s successful", config_entry.version)
     return True
@@ -332,6 +344,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.entry_id,
         )
         return True
+
+    # Ensure Mesh Node Requests keys exist (idempotent; new installs + partial data).
+    migrated = migrate_mcrpc_config(dict(entry.data))
+    if migrated != dict(entry.data):
+        hass.config_entries.async_update_entry(entry, data=migrated)
 
     # Get configuration from entry
     connection_type = entry.data[CONF_CONNECTION_TYPE]
