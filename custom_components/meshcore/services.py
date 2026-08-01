@@ -56,6 +56,11 @@ from .const import (
     SERVICE_GET_DISCOVERED_CONTACT,
     SERVICE_GET_CHANNELS,
     SERVICE_TRACE,
+    SERVICE_REQUEST,
+    SERVICE_BROADCAST,
+    SERVICE_RAW,
+    SERVICE_LIST_NODES,
+    SERVICE_HAS_CAPABILITY,
     SERVICE_SEND_MCRPC,
     SELECT_NO_CONTACTS,
     SELECT_NO_DISCOVERED,
@@ -69,9 +74,13 @@ from .const import (
     ATTR_RECORD_TO_CONSOLE,
     ATTR_TARGET,
     ATTR_ARGUMENTS,
+    ATTR_ARGS,
     ATTR_REQUEST_ID,
     ATTR_TIMEOUT,
     ATTR_BROADCAST,
+    ATTR_WAIT,
+    ATTR_CHANNEL,
+    ATTR_CAPABILITY,
 )
 from .utils import extract_pubkey_from_selection
 from .binary_sensor import create_contact_sensor
@@ -99,18 +108,75 @@ SEND_CHANNEL_MESSAGE_SCHEMA = vol.Schema(
     }
 )
 
-SEND_MCRPC_SCHEMA = vol.Schema(
+def _args_from_call(data: dict) -> Any:
+    """Prefer ``args``; accept legacy ``arguments``."""
+    if ATTR_ARGS in data and data[ATTR_ARGS] is not None:
+        return data[ATTR_ARGS]
+    return data.get(ATTR_ARGUMENTS)
+
+
+def _channel_from_call(data: dict) -> int | None:
+    """Prefer ``channel``; accept ``channel_idx``."""
+    if ATTR_CHANNEL in data and data[ATTR_CHANNEL] is not None:
+        return int(data[ATTR_CHANNEL])
+    if ATTR_CHANNEL_IDX in data and data[ATTR_CHANNEL_IDX] is not None:
+        return int(data[ATTR_CHANNEL_IDX])
+    return None
+
+
+def _bridge_or_raise(coordinator):
+    bridge = getattr(coordinator, "mcrpc_bridge", None)
+    if bridge is None or not bridge.enabled:
+        raise ValueError(
+            "Mesh node requests are disabled. Enable them under "
+            "MeshCore → Configure → Global Settings."
+        )
+    return bridge
+
+
+REQUEST_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_TARGET): cv.string,
         vol.Required(ATTR_COMMAND): cv.string,
+        vol.Optional(ATTR_ARGS): vol.Any(cv.string, [cv.string]),
         vol.Optional(ATTR_ARGUMENTS): vol.Any(cv.string, [cv.string]),
-        vol.Optional(ATTR_REQUEST_ID): vol.All(vol.Coerce(int), vol.Range(min=0)),
         vol.Optional(ATTR_TIMEOUT): vol.All(vol.Coerce(float), vol.Range(min=1, max=120)),
+        vol.Optional(ATTR_REQUEST_ID): vol.All(vol.Coerce(int), vol.Range(min=0)),
         vol.Optional(ATTR_BROADCAST, default=False): cv.boolean,
+        vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_WAIT, default=True): cv.boolean,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
+
+BROADCAST_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_COMMAND): cv.string,
+        vol.Optional(ATTR_ARGS): vol.Any(cv.string, [cv.string]),
+        vol.Optional(ATTR_ARGUMENTS): vol.Any(cv.string, [cv.string]),
+        vol.Optional(ATTR_TIMEOUT): vol.All(vol.Coerce(float), vol.Range(min=1, max=120)),
+        vol.Optional(ATTR_REQUEST_ID): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_WAIT, default=True): cv.boolean,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
+RAW_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_MESSAGE): cv.string,
+        vol.Optional(ATTR_TIMEOUT): vol.All(vol.Coerce(float), vol.Range(min=1, max=120)),
+        vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional(ATTR_WAIT, default=False): cv.boolean,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
+# Advanced / debug: arbitrary channel text (same as raw)
+SEND_MCRPC_SCHEMA = RAW_SCHEMA
 
 # Schema for execute_command service
 EXECUTE_COMMAND_SCHEMA = vol.Schema(
@@ -1914,27 +1980,121 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.ONLY,
     )
 
-    async def async_send_mcrpc_service(call: ServiceCall) -> dict[str, Any]:
-        """Send an mcRPC request over the configured MeshCore channel."""
-        entry_id = call.data.get(ATTR_ENTRY_ID)
-        coordinator = _resolve_coordinator(entry_id)
+    async def async_request_service(call: ServiceCall) -> dict[str, Any]:
+        """High-level node request — preferred automation API."""
+        coordinator = _resolve_coordinator(call.data.get(ATTR_ENTRY_ID))
         if coordinator is None:
             raise ValueError("No connected MeshCore entry found")
-        bridge = getattr(coordinator, "mcrpc_bridge", None)
-        if bridge is None or not bridge.enabled:
-            raise ValueError(
-                "mcRPC is not enabled. Enable it under MeshCore → Configure → Global Settings."
-            )
-        return await bridge.async_send(
+        bridge = _bridge_or_raise(coordinator)
+        return await bridge.async_request(
             target=call.data.get(ATTR_TARGET),
             command=call.data[ATTR_COMMAND],
-            arguments=call.data.get(ATTR_ARGUMENTS),
+            arguments=_args_from_call(call.data),
             request_id=call.data.get(ATTR_REQUEST_ID),
             timeout=call.data.get(ATTR_TIMEOUT),
             broadcast=bool(call.data.get(ATTR_BROADCAST, False)),
-            channel_idx=call.data.get(ATTR_CHANNEL_IDX),
+            channel_idx=_channel_from_call(call.data),
+            wait=bool(call.data.get(ATTR_WAIT, True)),
         )
 
+    async def async_broadcast_service(call: ServiceCall) -> dict[str, Any]:
+        """Broadcast a command to all listening nodes."""
+        coordinator = _resolve_coordinator(call.data.get(ATTR_ENTRY_ID))
+        if coordinator is None:
+            raise ValueError("No connected MeshCore entry found")
+        bridge = _bridge_or_raise(coordinator)
+        return await bridge.async_broadcast(
+            command=call.data[ATTR_COMMAND],
+            arguments=_args_from_call(call.data),
+            request_id=call.data.get(ATTR_REQUEST_ID),
+            timeout=call.data.get(ATTR_TIMEOUT),
+            channel_idx=_channel_from_call(call.data),
+            wait=bool(call.data.get(ATTR_WAIT, True)),
+        )
+
+    async def async_raw_service(call: ServiceCall) -> dict[str, Any]:
+        """Send arbitrary channel text (advanced)."""
+        coordinator = _resolve_coordinator(call.data.get(ATTR_ENTRY_ID))
+        if coordinator is None:
+            raise ValueError("No connected MeshCore entry found")
+        bridge = _bridge_or_raise(coordinator)
+        return await bridge.async_raw(
+            message=call.data[ATTR_MESSAGE],
+            timeout=call.data.get(ATTR_TIMEOUT),
+            channel_idx=_channel_from_call(call.data),
+            wait=bool(call.data.get(ATTR_WAIT, False)),
+        )
+
+    async def async_list_nodes_service(call: ServiceCall) -> dict[str, Any]:
+        """Return cached discover / capability registry."""
+        coordinator = _resolve_coordinator(call.data.get(ATTR_ENTRY_ID))
+        if coordinator is None:
+            raise ValueError("No connected MeshCore entry found")
+        bridge = _bridge_or_raise(coordinator)
+        return bridge.list_cached_nodes()
+
+    async def async_has_capability_service(call: ServiceCall) -> dict[str, Any]:
+        """Check capability registry: device.has('gps') style."""
+        coordinator = _resolve_coordinator(call.data.get(ATTR_ENTRY_ID))
+        if coordinator is None:
+            raise ValueError("No connected MeshCore entry found")
+        bridge = _bridge_or_raise(coordinator)
+        target = call.data[ATTR_TARGET]
+        capability = call.data[ATTR_CAPABILITY]
+        has = bridge.has_capability(target, capability)
+        return {
+            "target": target,
+            "capability": capability,
+            "has": has,
+            "capabilities": bridge.get_capabilities(target),
+            "entry_id": bridge.entry.entry_id,
+        }
+
+    async def async_send_mcrpc_service(call: ServiceCall) -> dict[str, Any]:
+        """Advanced/debug alias for meshcore.raw (arbitrary channel text)."""
+        return await async_raw_service(call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REQUEST,
+        async_request_service,
+        schema=REQUEST_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_BROADCAST,
+        async_broadcast_service,
+        schema=BROADCAST_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RAW,
+        async_raw_service,
+        schema=RAW_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_NODES,
+        async_list_nodes_service,
+        schema=vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_HAS_CAPABILITY,
+        async_has_capability_service,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_TARGET): cv.string,
+                vol.Required(ATTR_CAPABILITY): cv.string,
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+            }
+        ),
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SEND_MCRPC,
@@ -1991,8 +2151,16 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     if hass.services.has_service(DOMAIN, SERVICE_TRACE):
         hass.services.async_remove(DOMAIN, SERVICE_TRACE)
 
-    if hass.services.has_service(DOMAIN, SERVICE_SEND_MCRPC):
-        hass.services.async_remove(DOMAIN, SERVICE_SEND_MCRPC)
+    for svc in (
+        SERVICE_REQUEST,
+        SERVICE_BROADCAST,
+        SERVICE_RAW,
+        SERVICE_LIST_NODES,
+        SERVICE_HAS_CAPABILITY,
+        SERVICE_SEND_MCRPC,
+    ):
+        if hass.services.has_service(DOMAIN, svc):
+            hass.services.async_remove(DOMAIN, svc)
 
 
 def create_service_call(

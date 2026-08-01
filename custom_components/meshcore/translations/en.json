@@ -172,12 +172,12 @@
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
           "flood_scopes": "Flood Scope Allowlist",
-          "mcrpc_enabled": "Enable mcRPC",
-          "mcrpc_timeout": "mcRPC default timeout (seconds)",
-          "mcrpc_channel": "mcRPC default channel index",
-          "mcrpc_event_bridge": "Enable mcRPC event bridge",
-          "mcrpc_debug": "Enable mcRPC debug logging",
-          "mcrpc_entity_bridge": "Enable mcRPC entity bridge (experimental stub)"
+          "mcrpc_enabled": "Enable mesh node requests",
+          "mcrpc_timeout": "Node request timeout (seconds)",
+          "mcrpc_channel": "Node request default channel",
+          "mcrpc_event_bridge": "Enable mesh response events",
+          "mcrpc_debug": "Debug logging for node requests",
+          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -189,12 +189,12 @@
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
           "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
-          "mcrpc_enabled": "Optional text-RPC over MeshCore channels. Off by default; existing MeshCore behaviour is unchanged until enabled.",
-          "mcrpc_timeout": "Default seconds to wait for a correlated reply before emitting a timeout response event (1–120).",
-          "mcrpc_channel": "Default MeshCore channel index used by meshcore.send_mcrpc.",
-          "mcrpc_event_bridge": "When enabled, channel messages are classified and fired as meshcore_mcrpc_response / meshcore_mcrpc_event.",
-          "mcrpc_debug": "Extra debug logs for mcRPC send/receive correlation.",
-          "mcrpc_entity_bridge": "Reserved for future automatic sensors/trackers. Currently a no-op stub; leave off."
+          "mcrpc_enabled": "Optional mesh node commands (ping, GPS, battery, discover). Off by default — existing MeshCore behaviour is unchanged.",
+          "mcrpc_timeout": "How long meshcore.request waits for a reply before returning a timeout (1–120 seconds).",
+          "mcrpc_channel": "Default channel index used by meshcore.request / broadcast / raw.",
+          "mcrpc_event_bridge": "Fire meshcore_response and meshcore_event when channel replies arrive.",
+          "mcrpc_debug": "Extra debug logs for request/response correlation.",
+          "mcrpc_entity_bridge": "Reserved for future sensors/trackers. Currently a no-op; leave off."
         },
         "description": "Configure global integration settings",
         "title": "Global Settings"
@@ -315,12 +315,12 @@
           "stale_neighbor_days": "Stale Neighbor Threshold (days)",
           "adaptive_poll_wait": "Adaptive Channel Message Delivery",
           "flood_scopes": "Flood Scope Allowlist",
-          "mcrpc_enabled": "Enable mcRPC",
-          "mcrpc_timeout": "mcRPC default timeout (seconds)",
-          "mcrpc_channel": "mcRPC default channel index",
-          "mcrpc_event_bridge": "Enable mcRPC event bridge",
-          "mcrpc_debug": "Enable mcRPC debug logging",
-          "mcrpc_entity_bridge": "Enable mcRPC entity bridge (experimental stub)"
+          "mcrpc_enabled": "Enable mesh node requests",
+          "mcrpc_timeout": "Node request timeout (seconds)",
+          "mcrpc_channel": "Node request default channel",
+          "mcrpc_event_bridge": "Enable mesh response events",
+          "mcrpc_debug": "Debug logging for node requests",
+          "mcrpc_entity_bridge": "Experimental entity bridge (stub)"
         },
         "data_description": {
           "self_diagnostics_enabled": "Creates roughly 15 local diagnostic sensors for the companion node (uptime, TX queue length, noise floor, last RSSI/SNR, TX/RX airtime, and packet counters). Off by default. Adds no mesh traffic — these are local queries to the attached radio, not mesh requests. The interval controls how often the sensors refresh (60–3600 seconds).",
@@ -332,12 +332,12 @@
           "stale_neighbor_days": "Number of days without hearing a neighbor before it is automatically removed (1–365).",
           "adaptive_poll_wait": "When enabled, incoming channel messages fire as soon as RX_LOG data arrives (typically ~50ms) instead of always waiting the full 500ms. Late-arriving repeater data is delivered progressively. Disable if bots or automations depend on having all paths in the initial event.",
           "flood_scopes": "Comma-separated list of region scope names to match against incoming TC_FLOOD messages (e.g. pl-mz, pl-waw). When a match is found, rx_log_data will include a flood_scope field with the matched name. Leave empty to disable scope matching.",
-          "mcrpc_enabled": "Optional text-RPC over MeshCore channels. Off by default; existing MeshCore behaviour is unchanged until enabled.",
-          "mcrpc_timeout": "Default seconds to wait for a correlated reply before emitting a timeout response event (1–120).",
-          "mcrpc_channel": "Default MeshCore channel index used by meshcore.send_mcrpc.",
-          "mcrpc_event_bridge": "When enabled, channel messages are classified and fired as meshcore_mcrpc_response / meshcore_mcrpc_event.",
-          "mcrpc_debug": "Extra debug logs for mcRPC send/receive correlation.",
-          "mcrpc_entity_bridge": "Reserved for future automatic sensors/trackers. Currently a no-op stub; leave off."
+          "mcrpc_enabled": "Optional mesh node commands (ping, GPS, battery, discover). Off by default — existing MeshCore behaviour is unchanged.",
+          "mcrpc_timeout": "How long meshcore.request waits for a reply before returning a timeout (1–120 seconds).",
+          "mcrpc_channel": "Default channel index used by meshcore.request / broadcast / raw.",
+          "mcrpc_event_bridge": "Fire meshcore_response and meshcore_event when channel replies arrive.",
+          "mcrpc_debug": "Extra debug logs for request/response correlation.",
+          "mcrpc_entity_bridge": "Reserved for future sensors/trackers. Currently a no-op; leave off."
         },
         "description": "Configure global integration settings",
         "title": "Global Settings"
@@ -537,9 +537,9 @@
         }
       }
     },
-    "send_mcrpc": {
-      "name": "Send mcRPC",
-      "description": "Send an mcRPC request over a MeshCore channel.",
+    "request": {
+      "name": "Request",
+      "description": "Ask a mesh node for data. Returns the parsed reply for response_variable.",
       "fields": {
         "target": {
           "name": "Target",
@@ -547,27 +547,141 @@
         },
         "command": {
           "name": "Command",
-          "description": "mcRPC command."
+          "description": "Command to run."
         },
-        "arguments": {
+        "args": {
           "name": "Arguments",
           "description": "Optional arguments."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds to wait."
         },
         "request_id": {
           "name": "Request ID",
           "description": "Optional correlation id."
         },
-        "timeout": {
-          "name": "Timeout",
-          "description": "Reply timeout in seconds."
-        },
         "broadcast": {
           "name": "Broadcast",
           "description": "Send to all nodes."
         },
-        "channel_idx": {
-          "name": "Channel Index",
-          "description": "Channel to use."
+        "channel": {
+          "name": "Channel",
+          "description": "Channel index."
+        },
+        "wait": {
+          "name": "Wait for reply",
+          "description": "Return the parsed response."
+        },
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
+        }
+      }
+    },
+    "broadcast": {
+      "name": "Broadcast",
+      "description": "Send a command to all listening nodes.",
+      "fields": {
+        "command": {
+          "name": "Command",
+          "description": "Command to broadcast."
+        },
+        "args": {
+          "name": "Arguments",
+          "description": "Optional arguments."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds to wait."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "Channel index."
+        },
+        "wait": {
+          "name": "Wait for reply",
+          "description": "Wait for first reply."
+        },
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
+        }
+      }
+    },
+    "raw": {
+      "name": "Raw message",
+      "description": "Advanced — send arbitrary channel text.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Exact channel text."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds to wait."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "Channel index."
+        },
+        "wait": {
+          "name": "Wait for reply",
+          "description": "Wait for a correlated reply."
+        },
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
+        }
+      }
+    },
+    "list_nodes": {
+      "name": "List cached nodes",
+      "description": "Return discover / capability cache.",
+      "fields": {
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
+        }
+      }
+    },
+    "has_capability": {
+      "name": "Has capability",
+      "description": "Check whether a cached node has a capability.",
+      "fields": {
+        "target": {
+          "name": "Target",
+          "description": "Node name."
+        },
+        "capability": {
+          "name": "Capability",
+          "description": "Capability name."
+        },
+        "entry_id": {
+          "name": "Config Entry ID",
+          "description": "Optional entry id."
+        }
+      }
+    },
+    "send_mcrpc": {
+      "name": "Send mcRPC (Advanced / Debug)",
+      "description": "Debug alias for meshcore.raw.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Exact channel text."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds to wait."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "Channel index."
+        },
+        "wait": {
+          "name": "Wait for reply",
+          "description": "Wait for a correlated reply."
         },
         "entry_id": {
           "name": "Config Entry ID",

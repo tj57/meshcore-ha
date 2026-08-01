@@ -31,14 +31,14 @@ Optional features already use **default-off** flags (`cli_console_enabled`,
 
 ---
 
-## How mcRPC attaches (additive)
+## How node requests attach (additive)
 
 ```
-HA automation / service meshcore.send_mcrpc
+HA automation / meshcore.request | broadcast | raw
         │
         ▼
 McRpcBridge (custom_components/meshcore/mcrpc_bridge.py)
-        │  uses pure-Python package `mcrpc` (NOT vendored protocol code)
+        │  uses pure-Python package `mcrpc` (internal transport)
         ▼
 send_chan_msg(channel_idx, "tracker#42 gps")
         │
@@ -46,19 +46,21 @@ send_chan_msg(channel_idx, "tracker#42 gps")
         │
 CHANNEL_MSG_RECV → meshcore_message
         │
-McRpcBridge classifies (response | event)
+McRpcBridge classifies (response | event) + capability cache
         │
         ▼
-meshcore_mcrpc_response  /  meshcore_mcrpc_event
+meshcore_response  /  meshcore_event
+(+ legacy meshcore_mcrpc_* aliases)
 ```
 
 | Concern | Location |
 |---------|----------|
-| Wire grammar / builders / parsers | **`mcrpc` Python package** (`/data/projects/mcrpc/python`) |
-| Channel send + correlation + HA events | `mcrpc_bridge.py` |
+| Wire grammar / builders / parsers | **`mcrpc` Python package** (internal) |
+| Channel send + wait + cache + HA events | `mcrpc_bridge.py` |
 | Optional future entities | `mcrpc_entity_bridge.py` (stub, disabled) |
-| Config toggles | Global settings options flow |
-| Service | `meshcore.send_mcrpc` |
+| Config toggles | Global settings (“mesh node requests”) |
+| Public services | `request`, `broadcast`, `raw`, `list_nodes`, `has_capability` |
+| Debug | `send_mcrpc` (= `raw`) |
 
 ---
 

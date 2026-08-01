@@ -26,11 +26,11 @@ Core integration is powered by [meshcore-py](https://github.com/meshcore-dev/mes
 - ✅ Dashboard templates
 - ✅ Troubleshooting guides
 
-### Optional: mcRPC
+### Optional: mesh node requests
 
-This fork adds optional [mcRPC](docs/MCRPC.md) support (channel text RPC). Disabled by
-default — enable under **Configure → Global Settings**. Architecture notes:
-[ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md).
+This fork adds optional [mesh node requests](docs/MCRPC.md) (`meshcore.request`,
+`meshcore.broadcast`, `meshcore_response` events). Disabled by default — enable under
+**Configure → Global Settings**. Architecture: [ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md).
 
 ---
 

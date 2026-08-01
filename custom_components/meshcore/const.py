@@ -42,6 +42,13 @@ SERVICE_GET_CONTACTS: Final = "get_contacts"
 SERVICE_GET_DISCOVERED_CONTACT: Final = "get_discovered_contact"
 SERVICE_GET_CHANNELS: Final = "get_channels"
 SERVICE_TRACE: Final = "trace"
+# High-level mesh node request API (mcRPC is the internal transport)
+SERVICE_REQUEST: Final = "request"
+SERVICE_BROADCAST: Final = "broadcast"
+SERVICE_RAW: Final = "raw"
+SERVICE_LIST_NODES: Final = "list_nodes"
+SERVICE_HAS_CAPABILITY: Final = "has_capability"
+# Advanced / debug — send arbitrary channel text (prefer request / broadcast / raw)
 SERVICE_SEND_MCRPC: Final = "send_mcrpc"
 
 # Select entity placeholders
@@ -60,11 +67,16 @@ ATTR_SCOPE: Final = "scope"
 ATTR_RECORD_TO_CONSOLE: Final = "record_to_console"
 ATTR_TARGET: Final = "target"
 ATTR_ARGUMENTS: Final = "arguments"
+ATTR_ARGS: Final = "args"  # preferred alias for automations
 ATTR_REQUEST_ID: Final = "request_id"
 ATTR_TIMEOUT: Final = "timeout"
 ATTR_BROADCAST: Final = "broadcast"
+ATTR_WAIT: Final = "wait"
+ATTR_CHANNEL: Final = "channel"  # preferred alias for channel_idx
+ATTR_CAPABILITY: Final = "capability"
 
-# Optional mcRPC extension (default off — additive; no UX change until enabled)
+# Optional mesh node-request extension (default off — additive; no UX change until enabled).
+# Config keys keep the mcrpc_* prefix for backward compatibility with existing entries.
 CONF_MCRPC_ENABLED: Final = "mcrpc_enabled"
 CONF_MCRPC_TIMEOUT: Final = "mcrpc_timeout"
 CONF_MCRPC_CHANNEL: Final = "mcrpc_channel"
@@ -73,6 +85,10 @@ CONF_MCRPC_DEBUG: Final = "mcrpc_debug"
 CONF_MCRPC_ENTITY_BRIDGE: Final = "mcrpc_entity_bridge"
 DEFAULT_MCRPC_TIMEOUT: Final = 15
 DEFAULT_MCRPC_CHANNEL: Final = 0
+# Primary HA-native events (protocol-agnostic names)
+EVENT_NODE_RESPONSE: Final = f"{DOMAIN}_response"
+EVENT_NODE_EVENT: Final = f"{DOMAIN}_event"
+# Legacy aliases from the first mcRPC draft (still fired)
 EVENT_MCRPC_RESPONSE: Final = f"{DOMAIN}_mcrpc_response"
 EVENT_MCRPC_EVENT: Final = f"{DOMAIN}_mcrpc_event"
 
