@@ -452,6 +452,11 @@ async def handle_outgoing_message(event_data, coordinator) -> None:
             "send_id": event_data.get("send_id"),
         }
 
+        # Fire immediately so Chat / mcRPC / automations see the typed line
+        # without waiting for RX_LOG collection (~4s). The terminal re-fire
+        # below carries final rx_log_data (documented companion API behaviour).
+        hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, dict(logbook_event))
+
         # Correlate with RX_LOG data for outgoing channel messages.
         # When we send a channel message, repeaters re-broadcast it and our
         # radio picks up those re-broadcasts as RX_LOG events. This lets us
@@ -499,7 +504,7 @@ async def handle_outgoing_message(event_data, coordinator) -> None:
                         update_event["progressive"] = not is_final
 
                         if is_final:
-                            # Final pass: fire the real logbook event (single entry)
+                            # Terminal re-fire with final repeater correlation
                             hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, update_event)
                         else:
                             # Intermediate: lightweight event only the sensor listens to.
@@ -529,14 +534,10 @@ async def handle_outgoing_message(event_data, coordinator) -> None:
                         "%d RX_LOG reception(s) total",
                         len(all_rx_logs)
                     )
-            else:
-                # No timestamp available for correlation, fire single event
-                logbook_event["repeater_count"] = 0
-                hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, logbook_event)
+            # else: already fired once above when no timestamp for correlation
         except Exception as ex:
             _LOGGER.debug(f"Error correlating outgoing channel message with RX_LOG: {ex}")
-            # Fire event even on error so logbook still gets the entry
-            hass.bus.async_fire(EVENT_MESHCORE_MESSAGE, logbook_event)
+            # Initial fire already happened; do not duplicate on error
 
         _LOGGER.debug(
             "Logged outgoing channel message to %s: %s (repeaters: %s)",
