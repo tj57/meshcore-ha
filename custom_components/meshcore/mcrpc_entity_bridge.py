@@ -1,10 +1,10 @@
 """Optional Entity Bridge stub — disabled by default.
 
-Future work can map mcRPC responses/events onto:
+Future work can map Node Registry + Device Mapper onto:
   sensor, switch, button, device_tracker, binary_sensor
 
 Do not auto-create entities until this bridge is explicitly enabled and
-upstream UX is agreed.
+upstream UX is agreed. Device mapping lives in ``mcrpc_device_mapper``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class McRpcEntityBridge:
     async def async_setup(self) -> None:
         self._enabled = True
         _LOGGER.info(
-            "mcRPC Entity Bridge enabled (stub — no entities created yet) entry=%s",
+            "Entity Bridge enabled (stub — no entities created yet) entry=%s",
             self.entry.entry_id,
         )
 
@@ -37,7 +37,7 @@ class McRpcEntityBridge:
         self._enabled = False
 
     def handle_response(self, payload: dict[str, Any]) -> None:
-        """Hook for future sensor / tracker updates."""
+        """Hook for future sensor / tracker updates from Node Registry."""
         if not self._enabled:
             return
         _LOGGER.debug("EntityBridge (noop) response: %s", payload.get("command"))

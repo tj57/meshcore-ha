@@ -79,6 +79,7 @@ from .const import (
     ATTR_TIMEOUT,
     ATTR_BROADCAST,
     ATTR_WAIT,
+    ATTR_PARSE,
     ATTR_CHANNEL,
     ATTR_CAPABILITY,
 )
@@ -146,6 +147,7 @@ REQUEST_SCHEMA = vol.Schema(
         vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_WAIT, default=True): cv.boolean,
+        vol.Optional(ATTR_PARSE, default=True): cv.boolean,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -160,6 +162,7 @@ BROADCAST_SCHEMA = vol.Schema(
         vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_WAIT, default=True): cv.boolean,
+        vol.Optional(ATTR_PARSE, default=True): cv.boolean,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -171,6 +174,7 @@ RAW_SCHEMA = vol.Schema(
         vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_CHANNEL_IDX): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional(ATTR_WAIT, default=False): cv.boolean,
+        vol.Optional(ATTR_PARSE, default=True): cv.boolean,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -1995,6 +1999,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             broadcast=bool(call.data.get(ATTR_BROADCAST, False)),
             channel_idx=_channel_from_call(call.data),
             wait=bool(call.data.get(ATTR_WAIT, True)),
+            parse=bool(call.data.get(ATTR_PARSE, True)),
         )
 
     async def async_broadcast_service(call: ServiceCall) -> dict[str, Any]:
@@ -2010,6 +2015,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             timeout=call.data.get(ATTR_TIMEOUT),
             channel_idx=_channel_from_call(call.data),
             wait=bool(call.data.get(ATTR_WAIT, True)),
+            parse=bool(call.data.get(ATTR_PARSE, True)),
         )
 
     async def async_raw_service(call: ServiceCall) -> dict[str, Any]:
@@ -2023,6 +2029,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             timeout=call.data.get(ATTR_TIMEOUT),
             channel_idx=_channel_from_call(call.data),
             wait=bool(call.data.get(ATTR_WAIT, False)),
+            parse=bool(call.data.get(ATTR_PARSE, True)),
         )
 
     async def async_list_nodes_service(call: ServiceCall) -> dict[str, Any]:

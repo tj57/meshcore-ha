@@ -30,6 +30,8 @@ from .const import (
     EVENT_NODE_RESPONSE,
 )
 from .logbook import EVENT_MESHCORE_MESSAGE
+from .mcrpc_device_mapper import NodeDeviceMapper
+from .mcrpc_node_registry import NodeRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ def _import_mcrpc():
 
 
 class McRpcBridge:
-    """Channel transport + correlation for mesh node requests."""
+    """Channel transport + correlation + node registry for mesh node requests."""
 
     def __init__(self, hass: HomeAssistant, coordinator, entry) -> None:
         self.hass = hass
@@ -59,10 +61,36 @@ class McRpcBridge:
         self._correlator = None
         self._entity_bridge = None
         self._waiters: dict[int, asyncio.Future] = {}
+        # broadcast request_id → collected response payloads
+        self._broadcast_buckets: dict[int, list[dict[str, Any]]] = {}
         self._last_by_command: dict[str, dict[str, Any]] = {}
-        # node name → last discover / caps snapshot
-        self.discover_cache: dict[str, dict[str, Any]] = {}
-        self.capability_cache: dict[str, list[str]] = {}
+        self.registry = NodeRegistry()
+        self.device_mapper = NodeDeviceMapper(
+            entry_id=entry.entry_id,
+            hub_name=entry.data.get("name") or entry.title,
+        )
+        # Diagnostics / stats
+        self.stats: dict[str, Any] = {
+            "tx_count": 0,
+            "rx_count": 0,
+            "parse_ok": 0,
+            "parse_unknown": 0,
+            "timeouts": 0,
+            "errors": 0,
+            "last_tx": None,
+            "last_rx": None,
+            "last_error": None,
+            "recent_errors": [],
+        }
+
+    # ---- compat cache views (list_nodes / has_capability) --------------------
+    @property
+    def discover_cache(self) -> dict[str, dict[str, Any]]:
+        return self.registry.discover_cache_view()
+
+    @property
+    def capability_cache(self) -> dict[str, list[str]]:
+        return self.registry.capability_cache_view()
 
     @property
     def enabled(self) -> bool:
@@ -118,6 +146,7 @@ class McRpcBridge:
             if not fut.done():
                 fut.cancel()
         self._waiters.clear()
+        self._broadcast_buckets.clear()
         if self._entity_bridge:
             await self._entity_bridge.async_unload()
             self._entity_bridge = None
@@ -132,6 +161,13 @@ class McRpcBridge:
             self._mcrpc = _import_mcrpc()
             self._correlator = self._mcrpc.RequestCorrelator(default_timeout=self.default_timeout)
 
+    def _note_error(self, message: str) -> None:
+        self.stats["errors"] = int(self.stats["errors"]) + 1
+        self.stats["last_error"] = message
+        recent = list(self.stats.get("recent_errors") or [])
+        recent.append({"time": dt_util.utcnow().isoformat(), "error": message})
+        self.stats["recent_errors"] = recent[-20:]
+
     def _schedule_timeout_sweep(self) -> None:
         self.hass.async_create_task(self._async_timeout_sweep())
         self._timeout_unsub = self.hass.loop.call_later(5.0, self._schedule_timeout_sweep)
@@ -140,6 +176,15 @@ class McRpcBridge:
         if not self._correlator:
             return
         for pending in self._correlator.expire():
+            self.stats["timeouts"] = int(self.stats["timeouts"]) + 1
+            # Finalize broadcast buckets if any
+            if pending.request_id in self._broadcast_buckets:
+                bucket = self._broadcast_buckets.pop(pending.request_id, [])
+                if pending.request_id in self._waiters:
+                    fut = self._waiters.pop(pending.request_id)
+                    if not fut.done():
+                        fut.set_result(self._broadcast_result(pending, bucket))
+                continue
             payload = self._base_payload(
                 node=None,
                 target=pending.target,
@@ -150,7 +195,7 @@ class McRpcBridge:
                 success=False,
                 error="timeout",
             )
-            self._dispatch_response(payload)
+            self._dispatch_response(payload, resolve_waiter=True)
             if self.debug:
                 _LOGGER.debug(
                     "Node request timeout id=%s command=%s",
@@ -180,6 +225,7 @@ class McRpcBridge:
         error: str | None = None,
         data: dict[str, Any] | None = None,
         timestamp: str | None = None,
+        latency_ms: float | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "node": node,
@@ -192,17 +238,17 @@ class McRpcBridge:
             "raw": raw,
             "channel_idx": channel_idx,
             "entry_id": self.entry.entry_id,
-            # Compat aliases used by early automations / docs
             "source": node,
             "destination": target,
             "raw_message": raw,
             "error_code": error,
             "parameters": dict(data or {}),
             "kind": (command or "unknown"),
+            "latency_ms": latency_ms,
         }
         if data:
             for key, value in data.items():
-                if key in payload and key in {
+                if key in {
                     "node",
                     "target",
                     "command",
@@ -240,15 +286,27 @@ class McRpcBridge:
 
         if response.kind.name == "Status" or cmd == "status":
             shaped = self._mcrpc.parse_status_fields(body)
-            return {k: v for k, v in shaped.items() if k not in {"parameters", "fields", "raw", "request_id"}}
+            return {
+                k: v
+                for k, v in shaped.items()
+                if k not in {"parameters", "fields", "raw", "request_id"}
+            }
 
         if response.kind.name == "Discover" or cmd == "discover":
             shaped = self._mcrpc.parse_discover_fields(body)
-            return {k: v for k, v in shaped.items() if k not in {"parameters", "fields", "raw", "request_id"}}
+            return {
+                k: v
+                for k, v in shaped.items()
+                if k not in {"parameters", "fields", "raw", "request_id"}
+            }
 
         if response.kind.name == "Gps" or cmd == "gps":
             shaped = self._mcrpc.parse_gps(body)
-            return {k: v for k, v in shaped.items() if k not in {"parameters", "fields", "raw", "request_id"}}
+            return {
+                k: v
+                for k, v in shaped.items()
+                if k not in {"parameters", "fields", "raw", "request_id"}
+            }
 
         if cmd in {"battery", "voltage", "charging"} or response.kind.name in {
             "Battery",
@@ -256,7 +314,11 @@ class McRpcBridge:
             "Charging",
         }:
             shaped = self._mcrpc.parse_battery(body)
-            return {k: v for k, v in shaped.items() if k not in {"parameters", "fields", "raw", "request_id"}}
+            return {
+                k: v
+                for k, v in shaped.items()
+                if k not in {"parameters", "fields", "raw", "request_id"}
+            }
 
         if response.kind.name == "Caps" or cmd == "caps":
             caps = response.caps or self._mcrpc.parse_caps_blob(body)
@@ -265,67 +327,96 @@ class McRpcBridge:
         if response.kind.name == "Help" or cmd == "help":
             return {"commands": response.help_commands, "extra": {}}
 
-        # Generic: all key=value pairs as data + empty known set → extra = all
-        return {
-            "extra": dict(response.parameters),
-            **response.parameters,
+        return {"extra": dict(response.parameters), **response.parameters}
+
+    def _strip_parsed(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Return a raw-only view when parse=false."""
+        keep = {
+            "node",
+            "source",
+            "target",
+            "destination",
+            "command",
+            "request_id",
+            "success",
+            "error",
+            "error_code",
+            "timestamp",
+            "raw",
+            "raw_message",
+            "channel_idx",
+            "entry_id",
+            "latency_ms",
+            "kind",
         }
+        return {k: payload.get(k) for k in keep}
 
-    def _update_caches(self, node: str | None, command: str | None, data: dict[str, Any]) -> None:
-        if not node:
-            return
-        if command == "discover" or data.get("device") or data.get("profile"):
-            snapshot = {
-                "device": data.get("device") or node,
-                "profile": data.get("profile"),
-                "board": data.get("board"),
-                "firmware": data.get("firmware"),
-                "protocol": data.get("protocol"),
-                "sdk": data.get("sdk"),
-                "features": data.get("features") or {},
-                "capabilities": data.get("capabilities") or [],
-                "extra": data.get("extra") or {},
-                "updated": dt_util.utcnow().isoformat(),
-            }
-            key = str(snapshot["device"])
-            self.discover_cache[key] = snapshot
-            caps = list(snapshot["capabilities"] or [])
-            for feat, val in (snapshot.get("features") or {}).items():
-                if str(val).lower() in {"yes", "1", "true"} and feat not in caps:
-                    caps.append(feat)
-            if caps:
-                self.capability_cache[key] = caps
-                snapshot["capabilities"] = caps
-        if command == "caps" and data.get("capabilities"):
-            self.capability_cache[node] = list(data["capabilities"])
-            if node in self.discover_cache:
-                self.discover_cache[node]["capabilities"] = list(data["capabilities"])
-                self.discover_cache[node]["updated"] = dt_util.utcnow().isoformat()
-
-    def _dispatch_response(self, payload: dict[str, Any]) -> None:
+    def _dispatch_response(
+        self, payload: dict[str, Any], *, resolve_waiter: bool = True
+    ) -> None:
         command = payload.get("command")
         if command:
             self._last_by_command[str(command)] = payload
-        self._update_caches(payload.get("node"), command, payload.get("parameters") or payload)
 
-        # Primary HA-native events + legacy aliases (no breaking change)
+        shaped = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else payload
+        self.registry.apply_response(
+            node_id=payload.get("node"),
+            command=command,
+            data=shaped or {},
+            channel=payload.get("channel_idx"),
+            rssi=payload.get("rssi"),
+            timestamp_iso=payload.get("timestamp"),
+        )
+
         self.hass.bus.async_fire(EVENT_NODE_RESPONSE, payload)
         self.hass.bus.async_fire(EVENT_MCRPC_RESPONSE, payload)
 
         rid = payload.get("request_id")
-        if rid is not None and rid in self._waiters:
-            fut = self._waiters.pop(rid)
-            if not fut.done():
-                fut.set_result(payload)
+        if resolve_waiter and rid is not None and rid in self._waiters:
+            # Unicast waiters only — broadcast uses buckets
+            if rid not in self._broadcast_buckets:
+                fut = self._waiters.pop(rid)
+                if not fut.done():
+                    fut.set_result(payload)
 
         if self._entity_bridge:
             self._entity_bridge.handle_response(payload)
 
     def _dispatch_event(self, payload: dict[str, Any]) -> None:
+        self.registry.apply_event(
+            node_id=payload.get("node"),
+            event_name=payload.get("event") or payload.get("event_name"),
+            parameters=payload.get("parameters") or {},
+            channel=payload.get("channel_idx"),
+            timestamp_iso=payload.get("timestamp"),
+        )
         self.hass.bus.async_fire(EVENT_NODE_EVENT, payload)
         self.hass.bus.async_fire(EVENT_MCRPC_EVENT, payload)
         if self._entity_bridge:
             self._entity_bridge.handle_event(payload)
+
+    def _broadcast_result(self, pending, responses: list[dict[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "request_id": pending.request_id,
+            "target": pending.target,
+            "command": pending.command,
+            "arguments": pending.arguments,
+            "channel_idx": pending.channel_idx,
+            "entry_id": self.entry.entry_id,
+            "raw_request": pending.raw_request,
+            "responses": responses,
+            "count": len(responses),
+            "success": len(responses) > 0,
+            "error": None if responses else "timeout",
+        }
+        # Soft compat: expose first response fields at top level
+        if responses:
+            first = responses[0]
+            for key in ("source", "node", "raw", "latency_ms", "success"):
+                if key in first:
+                    result[key] = first[key]
+            result["parameters"] = first.get("parameters") or {}
+        return result
 
     async def _async_send_line(
         self,
@@ -351,6 +442,10 @@ class McRpcBridge:
             timeout=timeout,
             channel_idx=channel_idx,
             broadcast=broadcast,
+            meta={
+                "broadcast": broadcast,
+                "sent_at": time.monotonic(),
+            },
         )
 
         if self.debug:
@@ -363,7 +458,20 @@ class McRpcBridge:
 
         if result.type == EventType.ERROR:
             self._correlator.take(pending.request_id)
+            self._note_error(str(result.payload))
             raise RuntimeError(f"Failed to send node request: {result.payload}")
+
+        self.stats["tx_count"] = int(self.stats["tx_count"]) + 1
+        self.stats["last_tx"] = {
+            "time": dt_util.utcnow().isoformat(),
+            "raw": line,
+            "channel": channel_idx,
+            "request_id": pending.request_id,
+            "command": pending.command,
+        }
+
+        if broadcast:
+            self._broadcast_buckets[pending.request_id] = []
 
         return {
             "request_id": pending.request_id,
@@ -385,17 +493,19 @@ class McRpcBridge:
         arguments: Any = None,
         timeout: float | None = None,
         wait: bool = True,
+        parse: bool = True,
         channel_idx: int | None = None,
         request_id: int | None = None,
         broadcast: bool = False,
     ) -> dict[str, Any]:
-        """Ask a node (or all, when broadcast). Waits for reply by default (HA response)."""
+        """Ask a node (or all, when broadcast). Waits for reply by default."""
         if broadcast:
             return await self.async_broadcast(
                 command=command,
                 arguments=arguments,
                 timeout=timeout,
                 wait=wait,
+                parse=parse,
                 channel_idx=channel_idx,
                 request_id=request_id,
             )
@@ -407,6 +517,14 @@ class McRpcBridge:
         dest = (target or "").strip()
         if not dest:
             raise ValueError("target is required")
+
+        # Serve from cache when fresh (discover/status/battery/caps)
+        if wait and cmd in {"discover", "status", "battery", "caps"}:
+            if not self.registry.needs_refresh(dest, cmd):
+                node = self.registry.get(dest)
+                if node:
+                    cached = self._cached_response(dest, cmd, node)
+                    return cached if parse else self._strip_parsed(cached)
 
         to = float(timeout if timeout is not None else self.default_timeout)
         ch = self.default_channel if channel_idx is None else int(channel_idx)
@@ -424,7 +542,43 @@ class McRpcBridge:
         if not wait:
             return sent
 
-        return await self._await_response(sent["request_id"], to)
+        result = await self._await_response(sent["request_id"], to)
+        return result if parse else self._strip_parsed(result)
+
+    def _cached_response(self, target: str, command: str, node) -> dict[str, Any]:
+        data: dict[str, Any]
+        if command == "discover":
+            data = {
+                "device": node.display_name,
+                "profile": node.profile,
+                "board": node.board,
+                "firmware": node.firmware,
+                "protocol": node.protocol,
+                "sdk": node.sdk,
+                "features": dict(node.features),
+                "capabilities": list(node.capabilities),
+                "extra": dict(node.extra),
+                "cached": True,
+            }
+        elif command == "status":
+            data = {**node.last_status, "extra": dict(node.extra), "cached": True}
+        elif command == "battery":
+            data = {**node.battery, "cached": True}
+        elif command == "caps":
+            data = {"capabilities": list(node.capabilities), "cached": True}
+        else:
+            data = {"cached": True}
+        return self._base_payload(
+            node=target,
+            target=target,
+            command=command,
+            request_id=None,
+            channel_idx=node.channel if node.channel is not None else self.default_channel,
+            raw="",
+            success=True,
+            data=data,
+            timestamp=node.last_seen_iso,
+        )
 
     async def async_broadcast(
         self,
@@ -433,10 +587,11 @@ class McRpcBridge:
         arguments: Any = None,
         timeout: float | None = None,
         wait: bool = True,
+        parse: bool = True,
         channel_idx: int | None = None,
         request_id: int | None = None,
     ) -> dict[str, Any]:
-        """Ask all listening nodes (target ``all``). Waits for first reply by default."""
+        """Ask all listening nodes. When wait=true, collect responses[] until timeout."""
         self._ensure_ready()
         cmd = (command or "").strip().lower()
         if not cmd:
@@ -458,8 +613,16 @@ class McRpcBridge:
         if not wait:
             return sent
 
-        # Broadcast may yield multiple replies; wait returns the first correlated one.
-        return await self._await_response(sent["request_id"], to)
+        pending = self._correlator.peek(sent["request_id"])
+        result = await self._await_broadcast(sent["request_id"], to, pending)
+        if not parse:
+            raw_responses = []
+            for item in result.get("responses") or []:
+                raw_responses.append(self._strip_parsed(item))
+            result = {**result, "responses": raw_responses}
+            if "parameters" in result:
+                result["parameters"] = {}
+        return result
 
     async def async_raw(
         self,
@@ -467,6 +630,7 @@ class McRpcBridge:
         message: str,
         timeout: float | None = None,
         wait: bool = False,
+        parse: bool = True,
         channel_idx: int | None = None,
     ) -> dict[str, Any]:
         """Send a raw channel line (debug / advanced)."""
@@ -488,6 +652,7 @@ class McRpcBridge:
                 dest = "all"
             elif req.address_kind.name == "Self":
                 dest = "self"
+            is_broadcast = req.address_kind.name == "All"
             sent = await self._async_send_line(
                 target=dest,
                 command=req.command,
@@ -495,13 +660,25 @@ class McRpcBridge:
                 request_id=req.request_id if req.has_request_id else None,
                 timeout=to,
                 channel_idx=ch,
-                broadcast=req.address_kind.name == "All",
+                broadcast=is_broadcast,
             )
-            if wait:
-                return await self._await_response(sent["request_id"], to)
-            return sent
+            if not wait:
+                return sent
+            if is_broadcast:
+                pending = self._correlator.peek(sent["request_id"])
+                out = await self._await_broadcast(sent["request_id"], to, pending)
+            else:
+                out = await self._await_response(sent["request_id"], to)
+            if not parse:
+                if "responses" in out:
+                    out = {
+                        **out,
+                        "responses": [self._strip_parsed(r) for r in out["responses"]],
+                    }
+                else:
+                    out = self._strip_parsed(out)
+            return out
 
-        # Unparsed: send verbatim without correlation
         api = self.coordinator.api
         if not api or not api.connected:
             raise RuntimeError("MeshCore device is not connected")
@@ -511,7 +688,14 @@ class McRpcBridge:
         from meshcore.events import EventType
 
         if send_result.type == EventType.ERROR:
+            self._note_error(str(send_result.payload))
             raise RuntimeError(f"Failed to send raw message: {send_result.payload}")
+        self.stats["tx_count"] = int(self.stats["tx_count"]) + 1
+        self.stats["last_tx"] = {
+            "time": dt_util.utcnow().isoformat(),
+            "raw": text,
+            "channel": ch,
+        }
         return {
             "raw_request": text,
             "channel_idx": ch,
@@ -521,7 +705,7 @@ class McRpcBridge:
         }
 
     async def async_send(self, **kwargs: Any) -> dict[str, Any]:
-        """Backward-compatible low-level send (``send_mcrpc``)."""
+        """Backward-compatible low-level send."""
         broadcast = bool(kwargs.get("broadcast", False))
         if broadcast:
             return await self.async_broadcast(
@@ -552,6 +736,7 @@ class McRpcBridge:
             self._waiters.pop(request_id, None)
             if self._correlator:
                 self._correlator.take(request_id)
+            self.stats["timeouts"] = int(self.stats["timeouts"]) + 1
             return self._base_payload(
                 node=None,
                 target=None,
@@ -563,51 +748,103 @@ class McRpcBridge:
                 error="timeout",
             )
 
+    async def _await_broadcast(
+        self, request_id: int, timeout: float, pending
+    ) -> dict[str, Any]:
+        """Collect all replies until the timeout window elapses."""
+        loop = self.hass.loop
+        fut: asyncio.Future = loop.create_future()
+        self._waiters[request_id] = fut
+        self._broadcast_buckets.setdefault(request_id, [])
+        try:
+            # Prefer completing via timeout sweep / sleep
+            await asyncio.sleep(timeout)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._waiters.pop(request_id, None)
+            bucket = self._broadcast_buckets.pop(request_id, [])
+            if self._correlator:
+                self._correlator.take(request_id)
+        if not bucket:
+            self.stats["timeouts"] = int(self.stats["timeouts"]) + 1
+        if pending is None:
+            # Minimal pending stub for result shape
+            class _P:
+                pass
+
+            pending = _P()
+            pending.request_id = request_id
+            pending.target = "all"
+            pending.command = None
+            pending.arguments = []
+            pending.channel_idx = self.default_channel
+            pending.raw_request = ""
+        return self._broadcast_result(pending, bucket)
+
     def list_cached_nodes(self) -> dict[str, Any]:
-        """Return discover/capability cache for automations and UI helpers."""
-        nodes = []
-        keys = sorted(set(self.discover_cache) | set(self.capability_cache))
-        for name in keys:
-            disc = self.discover_cache.get(name, {})
-            nodes.append(
+        mapped = self.device_mapper.map_all(self.registry.all_nodes())
+        return {
+            "nodes": self.registry.list_dicts(),
+            "devices_preview": [
                 {
-                    "name": name,
-                    "profile": disc.get("profile"),
-                    "board": disc.get("board"),
-                    "firmware": disc.get("firmware"),
-                    "protocol": disc.get("protocol"),
-                    "sdk": disc.get("sdk"),
-                    "features": disc.get("features") or {},
-                    "capabilities": self.capability_cache.get(name)
-                    or disc.get("capabilities")
-                    or [],
-                    "extra": disc.get("extra") or {},
-                    "updated": disc.get("updated"),
+                    "identifiers": list(d["identifiers"]),
+                    "name": d["name"],
+                    "model": d["model"],
+                    "sw_version": d.get("sw_version"),
+                    "capabilities": d.get("_mcrpc", {}).get("capabilities"),
                 }
-            )
-        return {"nodes": nodes, "entry_id": self.entry.entry_id}
+                for d in mapped
+            ],
+            "entry_id": self.entry.entry_id,
+            "count": len(self.registry.all_nodes()),
+        }
 
     def get_capabilities(self, node: str) -> list[str]:
-        """Capability registry lookup (from discover/caps cache)."""
-        name = (node or "").strip()
-        if not name:
-            return []
-        if name in self.capability_cache:
-            return list(self.capability_cache[name])
-        disc = self.discover_cache.get(name) or {}
-        caps = list(disc.get("capabilities") or [])
-        # Feature flags like gps=yes also count as capabilities
-        for key, value in (disc.get("features") or {}).items():
-            if str(value).lower() in {"yes", "1", "true"} and key not in caps:
-                caps.append(key)
-        return caps
+        return self.registry.get_capabilities(node)
 
     def has_capability(self, node: str, capability: str) -> bool:
-        """True when the node advertised this capability (cached)."""
-        cap = (capability or "").strip().lower()
-        if not cap:
-            return False
-        return cap in {c.lower() for c in self.get_capabilities(node)}
+        return self.registry.has_capability(node, capability)
+
+    def diagnostics_dict(self) -> dict[str, Any]:
+        """Payload for Home Assistant Diagnostics download."""
+        api = getattr(self.coordinator, "api", None)
+        connected = bool(api and getattr(api, "connected", False))
+        conn_type = self.entry.data.get("connection_type")
+        pending = []
+        if self._correlator:
+            for p in self._correlator._pending.values():  # noqa: SLF001 — diagnostics
+                pending.append(
+                    {
+                        "request_id": p.request_id,
+                        "target": p.target,
+                        "command": p.command,
+                        "broadcast": bool(p.meta.get("broadcast")),
+                        "raw": p.raw_request,
+                    }
+                )
+        return {
+            "node_requests_enabled": self.enabled,
+            "connected": connected,
+            "transport": conn_type,
+            "current_channel": self.default_channel,
+            "default_timeout": self.default_timeout,
+            "last_rx": self.stats.get("last_rx"),
+            "last_tx": self.stats.get("last_tx"),
+            "known_nodes": self.registry.list_dicts(),
+            "capabilities": self.capability_cache,
+            "pending_requests": pending,
+            "outstanding_timeouts": self.stats.get("timeouts"),
+            "recent_protocol_errors": self.stats.get("recent_errors"),
+            "parser_statistics": {
+                "parse_ok": self.stats.get("parse_ok"),
+                "parse_unknown": self.stats.get("parse_unknown"),
+                "rx_count": self.stats.get("rx_count"),
+                "tx_count": self.stats.get("tx_count"),
+                "errors": self.stats.get("errors"),
+            },
+            "device_mapper_preview": self.list_cached_nodes().get("devices_preview"),
+        }
 
     @callback
     def _on_meshcore_message(self, event: Event) -> None:
@@ -624,8 +861,18 @@ class McRpcBridge:
         source = data.get("sender_name")
         channel_idx = data.get("channel_idx", self.default_channel)
         ts = data.get("timestamp") or dt_util.utcnow().isoformat()
+        rssi = data.get("rssi") or data.get("RSSI")
+
+        self.stats["rx_count"] = int(self.stats["rx_count"]) + 1
+        self.stats["last_rx"] = {
+            "time": ts,
+            "raw": body,
+            "source": source,
+            "channel": channel_idx,
+        }
 
         if kind == "event" and evt is not None:
+            self.stats["parse_ok"] = int(self.stats["parse_ok"]) + 1
             payload = {
                 "node": source,
                 "event": evt.name,
@@ -642,24 +889,32 @@ class McRpcBridge:
                 "parameters": evt.parameters,
                 "extra": dict(evt.parameters),
                 "source": source,
+                "rssi": rssi,
             }
             for key, value in evt.parameters.items():
                 payload.setdefault(key, value)
             self._dispatch_event(payload)
-            if self.debug:
-                _LOGGER.debug("Node event %s params=%s", evt.name, evt.parameters)
             return
 
         if kind == "response" and response is not None:
             if response.kind.name == "Unknown" and pending is None:
+                self.stats["parse_unknown"] = int(self.stats["parse_unknown"]) + 1
                 return
 
+            self.stats["parse_ok"] = int(self.stats["parse_ok"]) + 1
             command = (pending.command if pending else None) or response.command_hint
             shaped = self._shape_response_data(command, body, response, pending)
             success = response.kind.name != "Error"
             error = response.error_code if not success else None
-            # Prefer device name from discover body when present
+            if error:
+                self._note_error(error)
             node = source or shaped.get("device") or shaped.get("name")
+
+            latency_ms = None
+            if pending and pending.meta.get("sent_at") is not None:
+                latency_ms = round(
+                    (time.monotonic() - float(pending.meta["sent_at"])) * 1000, 1
+                )
 
             payload = self._base_payload(
                 node=node,
@@ -672,10 +927,42 @@ class McRpcBridge:
                 error=error,
                 data=shaped,
                 timestamp=ts,
+                latency_ms=latency_ms,
             )
-            # Keep parameters as the shaped dict for automations that expect it
             payload["parameters"] = shaped
-            self._dispatch_response(payload)
+            payload["rssi"] = rssi
+            payload["parsed"] = shaped
+            payload["raw_payload"] = body
+
+            # Broadcast: accumulate; unicast: resolve waiter
+            rid = response.request_id
+            if rid is not None and rid in self._broadcast_buckets:
+                item = {
+                    "source": node,
+                    "node": node,
+                    "request_id": rid,
+                    "latency_ms": latency_ms,
+                    "parsed": shaped,
+                    "raw": body,
+                    "raw_payload": body,
+                    "success": success,
+                    "error": error,
+                    "command": command,
+                    "parameters": shaped,
+                    "channel_idx": channel_idx,
+                    "rssi": rssi,
+                    "timestamp": ts,
+                }
+                # Flatten known fields for convenience
+                for k, v in shaped.items():
+                    if k not in item:
+                        item[k] = v
+                self._broadcast_buckets[rid].append(item)
+                # Still fire per-response events for automations
+                self._dispatch_response(payload, resolve_waiter=False)
+            else:
+                self._dispatch_response(payload, resolve_waiter=True)
+
             if self.debug:
                 _LOGGER.debug("Node response command=%s id=%s", command, response.request_id)
 

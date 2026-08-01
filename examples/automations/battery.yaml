@@ -1,0 +1,19 @@
+alias: Mesh battery check
+description: Read battery and warn when low
+triggers:
+  - trigger: time_pattern
+    minutes: "/30"
+conditions: []
+actions:
+  - action: meshcore.request
+    data:
+      target: tracker
+      command: battery
+    response_variable: batt
+  - condition: template
+    value_template: "{{ batt.success and (batt.percentage | int(100)) < 20 }}"
+  - action: persistent_notification.create
+    data:
+      title: Mesh battery low
+      message: "tracker at {{ batt.percentage }}% ({{ batt.voltage }} V)"
+mode: single
