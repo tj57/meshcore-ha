@@ -60,6 +60,12 @@ A companion Lovelace card is available at [meshcore-card](https://github.com/jpe
    - Select "Integration" as the category
 3. Click "Install" on the MeshCore integration
 
+**Fork / mcRPC note:** HACS installs the repository **default branch** (`main`)
+and may offer the newest `v*` tag. Those tips must always declare
+`ConfigFlow.VERSION` ≥ any schema already stored in your config entries.
+See [Config entry migration](docs/CONFIG_ENTRY_MIGRATION.md). Do not pin an
+older tag (for example `v2.9.0`) after entries have been migrated to schema 4.
+
 ### Manual Installation
 
 1. Copy the `custom_components/meshcore` directory to your Home Assistant `custom_components` directory

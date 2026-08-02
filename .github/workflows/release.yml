@@ -23,3 +23,5 @@ jobs:
             echo "::error::tag $TAG does not match manifest version $MANIFEST"
             exit 1
           fi
+      - name: HACS installable schema floor
+        run: python scripts/check_hacs_installable_schema.py

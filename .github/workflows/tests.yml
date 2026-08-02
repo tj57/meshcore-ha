@@ -3,7 +3,7 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, mcrpc]
 
 permissions:
   contents: read
@@ -23,6 +23,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-test.txt
       - run: pip install -r requirements-test.txt
+      # Guard HACS installable tips (default branch / newest tag) against
+      # ConfigEntry schema downgrades that hard-fail existing entries.
+      - run: python scripts/check_hacs_installable_schema.py
       # --strict-markers turns an unregistered/typo'd marker into an error
       # rather than a silently-skipped test.
       - run: pytest tests --strict-markers --cov=custom_components/meshcore --cov-report=xml --cov-report=term
