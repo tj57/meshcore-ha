@@ -79,6 +79,8 @@ send_chan_msg(reply) → MeshCore Chat
 
 ## First command wave
 
-`ping`, `status`, `discover`, `gps` (+ start/stop/once args), `battery`, `caps`, `help`.
+`ping`, `status`, `discovery`, `gps` (+ start/stop/once args), `battery`, `caps`, `help`.
+
+`discover` remains accepted as a backward-compatible alias.
 
 Parsed fields exposed on response events; unknown `key=value` pairs preserved.

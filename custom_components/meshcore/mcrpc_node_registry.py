@@ -101,6 +101,13 @@ class NodeRegistry:
     def get(self, node_id: str) -> NodeRecord | None:
         return self._nodes.get((node_id or "").strip())
 
+    @staticmethod
+    def _canonical_kind(kind: str | None) -> str:
+        cmd = (kind or "").strip().lower()
+        if cmd == "discover":
+            return "discovery"
+        return cmd
+
     def ensure(self, node_id: str) -> NodeRecord:
         key = (node_id or "").strip()
         if not key:
@@ -133,15 +140,18 @@ class NodeRegistry:
         node = self.get(node_id)
         if node is None:
             return True
+        cmd = self._canonical_kind(kind)
         ttl = {
+            "discovery": self.ttl_discover,
             "discover": self.ttl_discover,
             "caps": self.ttl_caps,
             "status": self.ttl_status,
             "battery": self.ttl_battery,
-        }.get(kind, 0)
+        }.get(cmd, 0)
         if ttl <= 0:
             return True
-        return not node.is_fresh(kind, ttl)
+        fresh_key = "discover" if cmd == "discovery" else cmd
+        return not node.is_fresh(fresh_key, ttl)
 
     def apply_response(
         self,
@@ -161,14 +171,14 @@ class NodeRegistry:
         if not node.discovered_at_iso and timestamp_iso:
             node.discovered_at_iso = timestamp_iso
         node.touch(iso=timestamp_iso, channel=channel, rssi=rssi)
-        cmd = (command or "").lower() if command else ""
+        cmd = self._canonical_kind(command)
 
         # Merge arbitrary extras
         extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
         for k, v in extra.items():
             node.extra[k] = v
 
-        if cmd == "discover" or data.get("profile") is not None or data.get("device"):
+        if cmd == "discovery" or data.get("profile") is not None or data.get("device"):
             if data.get("device"):
                 node.display_name = str(data["device"])
             if data.get("profile") is not None:
@@ -191,6 +201,9 @@ class NodeRegistry:
                 # union with existing
                 merged = list(dict.fromkeys([*node.capabilities, *caps]))
                 node.capabilities = merged
+            # Keep the historic "discover" cache key for compatibility with
+            # existing diagnostics/tests while internally using discovery.
+            node.cached_at["discovery"] = time.monotonic()
             node.cached_at["discover"] = time.monotonic()
 
         if cmd == "caps" and data.get("capabilities"):
@@ -262,7 +275,7 @@ class NodeRegistry:
     def discover_cache_view(self) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
         for n in self.all_nodes():
-            if "discover" not in n.cached_at and not n.profile:
+            if "discover" not in n.cached_at and "discovery" not in n.cached_at and not n.profile:
                 continue
             out[n.node_id] = {
                 "device": n.display_name or n.node_id,

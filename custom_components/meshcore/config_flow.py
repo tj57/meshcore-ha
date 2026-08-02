@@ -19,6 +19,7 @@ from bleak import BleakScanner
 from meshcore.events import EventType
 
 from .const import (
+    CONFIG_ENTRY_VERSION,
     CONF_NAME,
     CONF_PUBKEY,
     DOMAIN,
@@ -269,7 +270,7 @@ async def validate_tcp_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[
 class MeshCoreConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignore
     """Handle a config flow for MeshCore."""
 
-    VERSION = 4
+    VERSION = CONFIG_ENTRY_VERSION
 
     def __init__(self) -> None:
         """Initialize flow."""

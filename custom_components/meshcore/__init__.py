@@ -25,6 +25,7 @@ from homeassistant.helpers.device_registry import DeviceEntry
 
 
 from .const import (
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
     CONF_CONNECTION_TYPE,
     CONF_NAME,
@@ -86,8 +87,12 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     _LOGGER.debug("Migrating configuration from version %s", config_entry.version)
     
     # Don't allow downgrading from future versions
-    if config_entry.version > 4:
-        _LOGGER.error("Cannot downgrade from version %s", config_entry.version)
+    if config_entry.version > CONFIG_ENTRY_VERSION:
+        _LOGGER.error(
+            "Cannot downgrade from version %s (supported max=%s)",
+            config_entry.version,
+            CONFIG_ENTRY_VERSION,
+        )
         return False
     
     # Migrate from version 1 to version 2
@@ -139,7 +144,11 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     # Preserves prior behaviour when mcrpc_enabled was already true.
     if config_entry.version == 3:
         new_data = migrate_mcrpc_config(dict(config_entry.data))
-        hass.config_entries.async_update_entry(config_entry, data=new_data, version=4)
+        hass.config_entries.async_update_entry(
+            config_entry,
+            data=new_data,
+            version=CONFIG_ENTRY_VERSION,
+        )
         _LOGGER.info(
             "Migrated Mesh Node Requests settings (listen_mode=%s)",
             new_data.get(CONF_MCRPC_LISTEN_MODE),
@@ -335,6 +344,15 @@ def _migrate_unique_ids_scope_contact_diagnostics(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MeshCore from a config entry."""
+    if entry.version > CONFIG_ENTRY_VERSION:
+        _LOGGER.error(
+            "Config entry %s has unsupported future version %s (supported max=%s)",
+            entry.entry_id,
+            entry.version,
+            CONFIG_ENTRY_VERSION,
+        )
+        return False
+
     # Home Assistant can trigger a duplicate setup during rapid reload/update cycles.
     # Skip duplicate setup for an already initialized entry to avoid double platform setup.
     if entry.entry_id in hass.data.get(DOMAIN, {}):

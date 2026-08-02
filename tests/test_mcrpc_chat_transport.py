@@ -105,7 +105,7 @@ def _entry(data: dict):
 
 def _bridge(data: dict | None = None) -> McRpcBridge:
     cfg = {
-        "name": "mcYogi",
+        "name": "mcCtrl",
         const.CONF_MCRPC_ENABLED: True,
         const.CONF_MCRPC_LISTEN_MODE: const.MCRPC_LISTEN_ALL,
         const.CONF_MCRPC_ACCEPT_BROADCAST: True,
@@ -131,7 +131,7 @@ def _bridge(data: dict | None = None) -> McRpcBridge:
     hass.async_create_task = _create_task
     hass._mcrpc_tasks = tasks
     coord = MagicMock()
-    coord.name = "mcYogi"
+    coord.name = "mcCtrl"
     coord.api = MagicMock()
     coord.api.connected = True
     ok = MagicMock()
@@ -181,7 +181,7 @@ async def test_chat_all_ping_answers_via_meshcore_message():
 
 
 @pytest.mark.asyncio
-async def test_chat_mcyogi_ping_addressed_to_local_name():
+async def test_chat_mcctrl_ping_addressed_to_local_name():
     b = _bridge()
     sent = []
 
@@ -193,7 +193,7 @@ async def test_chat_mcyogi_ping_addressed_to_local_name():
 
     event = MagicMock()
     event.data = {
-        "message": "mcYogi ping",
+        "message": "mcCtrl ping",
         "sender_name": "Phone",
         "channel_idx": 1,
         "message_type": "channel",
@@ -243,7 +243,7 @@ async def test_message_sent_fast_path_for_local_chat():
     event = MagicMock()
     event.data = {
         "device": "entry1",
-        "message": "all discover",
+        "message": "all discovery",
         "message_type": "channel",
         "channel_idx": 1,
         "send_id": "abcd1234",
@@ -252,7 +252,29 @@ async def test_message_sent_fast_path_for_local_chat():
     b._on_message_sent(event)
     await _flush(b)
     assert sent, b.stats.get("recent_traces")
-    assert "discover" in sent[0][1]
+    assert "discovery" in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_message_sent_discover_alias_is_still_accepted():
+    b = _bridge()
+    sent = []
+
+    async def capture(ch, text, timestamp=None):
+        sent.append((ch, text))
+        return MagicMock(type=object())
+
+    b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+    event = MagicMock()
+    event.data = {
+        "device": "entry1",
+        "message": "all discover",
+        "message_type": "channel",
+        "channel_idx": 1,
+    }
+    b._on_message_sent(event)
+    await _flush(b)
+    assert sent and "discovery" in sent[0][1]
 
 
 @pytest.mark.asyncio
@@ -281,7 +303,7 @@ async def test_dedup_message_sent_and_meshcore_message():
         MagicMock(
             data={
                 "message": "all ping",
-                "sender_name": "mcYogi",
+                "sender_name": "mcCtrl",
                 "channel_idx": 1,
                 "outgoing": True,
                 "send_id": sid,
@@ -291,6 +313,43 @@ async def test_dedup_message_sent_and_meshcore_message():
     )
     await _flush(b)
     assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_inbound_answer_is_rebroadcast_to_message_history_pipeline():
+    b = _bridge()
+    sent = []
+
+    async def capture(ch, text, timestamp=None):
+        sent.append((ch, text, timestamp))
+        return MagicMock(type=object(), payload={"timestamp": 1710001111})
+
+    b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+
+    event = MagicMock()
+    event.data = {
+        "message": "all ping",
+        "sender_name": "Phone",
+        "channel_idx": 1,
+        "message_type": "channel",
+    }
+    b._on_meshcore_message(event)
+    await _flush(b)
+
+    assert sent and sent[0][1] == "pong"
+    fired = [
+        c
+        for c in b.hass.bus.async_fire.call_args_list
+        if c.args and c.args[0] == f"{const.DOMAIN}_message_sent"
+    ]
+    assert fired, "expected mcRPC replies to enter meshcore_message_sent pipeline"
+    payload = fired[-1].args[1]
+    assert payload["origin"] == "mcrpc_answer"
+    assert payload["message"] == "pong"
+    assert payload["device"] == "entry1"
+    assert payload["message_type"] == "channel"
+    assert payload["channel_idx"] == 1
+    assert payload["send_timestamp"] == 1710001111
 
 
 def test_chat_vs_raw_body_identical_after_strip():
