@@ -63,11 +63,11 @@ spec_d.loader.exec_module(dm)
 import mcrpc  # noqa: E402
 
 
-def test_node_registry_updates_from_discover_status_battery():
+def test_node_registry_updates_from_discovery_status_battery():
     reg = nr.NodeRegistry(ttl_status=60, ttl_battery=60, ttl_discover=60)
     reg.apply_response(
         node_id="tracker",
-        command="discover",
+        command="discovery",
         data={
             "device": "tracker",
             "profile": "tracker",
@@ -85,6 +85,7 @@ def test_node_registry_updates_from_discover_status_battery():
     assert node is not None
     assert "gps" in node.capabilities
     assert node.extra["board_rev"] == 3
+    assert not reg.needs_refresh("tracker", "discovery")
     assert not reg.needs_refresh("tracker", "discover")
 
     reg.apply_response(

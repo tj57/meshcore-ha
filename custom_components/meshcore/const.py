@@ -5,6 +5,10 @@ from typing import Final
 
 DOMAIN: Final = "meshcore"
 
+# Config entry schema version. Never decrease this value; downgrades to older
+# integration builds with lower VERSION will break existing HA config entries.
+CONFIG_ENTRY_VERSION: Final = 4
+
 # Connection types
 CONF_CONNECTION_TYPE: Final = "connection_type"
 CONF_USB_PATH: Final = "usb_path"

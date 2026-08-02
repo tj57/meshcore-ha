@@ -53,7 +53,7 @@ and **reply identity** (which local radio sends the reply — multi-radio ready)
 │ ☑ Enable Mesh Node Requests                              │
 │ ☑ Answer inbound requests                                │
 │ Listening channels:  [ Selected channels          ▾ ]    │
-│ Selected channels:   ☑ Channel 1 (mcYogi)                │
+│ Selected channels:   ☑ Channel 1 (mcCtrl)                │
 │                      ☐ Channel 0 (Public)                │
 │ Default TX / current channel index:  1                   │
 │ ☑ Accept broadcast (all …)                               │
@@ -119,7 +119,7 @@ Existing installs that already had mcRPC enabled are migrated to keep working
 | Field | Default | Notes |
 |-------|---------|-------|
 | `target` | — | Required unless `broadcast` |
-| `command` | — | ping, gps, battery, status, discover, … |
+| `command` | — | ping, gps, battery, status, discovery, … |
 | `args` | — | Optional |
 | `timeout` | settings | Seconds |
 | `request_id` | auto | |
@@ -210,9 +210,11 @@ Enable **Debug logging for node requests** to emit `mcRPC TRACE` stages:
 
 Typed examples that must work when policy allows:
 
-- `mcYogi ping` / `mcYogi status` — when HA local name (or alias) is `mcYogi`
-- `all ping` / `all discover` — broadcast
+- `mcCtrl ping` / `mcCtrl status` — when HA local name (or alias) is `mcCtrl`
+- `all ping` / `all discovery` — broadcast
 - bare `ping` — only if **Accept bare commands** is enabled
+
+Backward compatibility: `discover` remains accepted as an alias for `discovery`.
 
 ## Compatibility
 

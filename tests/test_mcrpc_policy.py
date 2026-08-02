@@ -230,4 +230,4 @@ def test_channel_label_helper():
         return f"Channel {idx} ({n})"
 
     assert label(0, None) == "Channel 0 (Public)"
-    assert label(1, "mcYogi") == "Channel 1 (mcYogi)"
+    assert label(1, "mcCtrl") == "Channel 1 (mcCtrl)"

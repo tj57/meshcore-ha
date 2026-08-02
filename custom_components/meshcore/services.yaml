@@ -343,7 +343,7 @@ clear_discovered_contacts:
 request:
   name: Request
   description: >-
-    Ask a mesh node for data (ping, gps, battery, status, discover, …).
+    Ask a mesh node for data (ping, gps, battery, status, discovery, …).
     Waits for the reply by default — use response_variable in scripts/automations.
     Enable under Configure → Global Settings first.
   fields:
@@ -356,7 +356,7 @@ request:
         text:
     command:
       name: Command
-      description: Command to run (ping, status, discover, gps, battery, caps, help, …).
+      description: Command to run (ping, status, discovery, gps, battery, caps, help, …).
       required: true
       example: "gps"
       selector:
@@ -426,7 +426,7 @@ request:
 broadcast:
   name: Broadcast
   description: >-
-    Send a command to all listening nodes (discover, ping, …).
+    Send a command to all listening nodes (discovery, ping, …).
     When Wait is enabled, collects simultaneous replies into responses[]
     (each with source, request_id, latency, parsed, raw).
   fields:
@@ -434,7 +434,7 @@ broadcast:
       name: Command
       description: Command to broadcast.
       required: true
-      example: "discover"
+      example: "discovery"
       selector:
         text:
     args:
@@ -482,9 +482,9 @@ raw:
   fields:
     message:
       name: Message
-      description: Exact channel text to send (e.g. "all discover" or "tracker#7 gps once").
+      description: Exact channel text to send (e.g. "all discovery" or "tracker#7 gps once").
       required: true
-      example: "all discover"
+      example: "all discovery"
       selector:
         text:
     timeout:
@@ -518,7 +518,7 @@ raw:
 list_nodes:
   name: List cached nodes
   description: >-
-    Return the discover / capability cache built from previous discover and caps replies.
+    Return the discovery / capability cache built from previous discovery and caps replies.
     Does not send mesh traffic.
   fields:
     entry_id:
@@ -531,7 +531,8 @@ has_capability:
   name: Has capability
   description: >-
     Check whether a cached node advertised a capability (e.g. gps, battery).
-    Populate the cache first with meshcore.broadcast command discover (or caps).
+    Populate the cache first with meshcore.broadcast command discovery (or caps).
+    The legacy discover alias is still accepted.
   fields:
     target:
       name: Target
@@ -563,7 +564,7 @@ send_mcrpc:
       name: Message
       description: Exact channel text to send.
       required: true
-      example: "all discover"
+      example: "all discovery"
       selector:
         text:
     timeout:

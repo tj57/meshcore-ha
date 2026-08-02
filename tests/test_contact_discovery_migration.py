@@ -21,6 +21,7 @@ import importlib.util
 import os
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,6 +30,8 @@ _PKG = "custom_components.meshcore"
 _BASE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "custom_components", "meshcore"
 )
+_CONFIG_FLOW_PATH = os.path.join(_BASE, "config_flow.py")
+_INIT_PATH = os.path.join(_BASE, "__init__.py")
 
 # --- Stub the heavy deps __init__.py imports at module load -------------------
 _STUBS = (
@@ -92,6 +95,7 @@ CONF_MODE = const.CONF_CONTACT_DISCOVERY_MODE
 MODE_FULL = const.MODE_FULL
 MODE_DATA_ONLY = const.MODE_DATA_ONLY
 MODE_OFF = const.MODE_OFF
+SCHEMA_VERSION = const.CONFIG_ENTRY_VERSION
 
 _LEGACY_DISABLE = "disable_contact_discovery"
 _LEGACY_LARGE_MESH = "large_mesh_mode"
@@ -139,6 +143,17 @@ def test_mode_constant_values():
     assert const.CONTACT_DISCOVERY_MODES == ("full", "data_only", "off")
 
 
+def test_config_flow_uses_shared_schema_version_constant():
+    text = Path(_CONFIG_FLOW_PATH).read_text(encoding="utf-8")
+    assert "VERSION = CONFIG_ENTRY_VERSION" in text
+
+
+def test_migration_code_blocks_future_schema_versions():
+    text = Path(_INIT_PATH).read_text(encoding="utf-8")
+    assert "if config_entry.version > CONFIG_ENTRY_VERSION" in text
+    assert "Cannot downgrade from version" in text
+
+
 def test_accessor_returns_stored_mode():
     entry = _FakeEntry(3, {CONF_MODE: MODE_DATA_ONLY})
     assert const.get_contact_discovery_mode(entry) == MODE_DATA_ONLY
@@ -160,7 +175,7 @@ def test_accessor_defaults_to_full_when_absent():
 async def test_migrate_disable_maps_to_off():
     ok, entry = await _run(2, {_LEGACY_DISABLE: True})
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[CONF_MODE] == MODE_OFF
     assert _LEGACY_DISABLE not in entry.data
     assert _LEGACY_LARGE_MESH not in entry.data
@@ -170,7 +185,7 @@ async def test_migrate_disable_maps_to_off():
 async def test_migrate_large_mesh_maps_to_data_only():
     ok, entry = await _run(2, {_LEGACY_LARGE_MESH: True})
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[CONF_MODE] == MODE_DATA_ONLY
     assert _LEGACY_LARGE_MESH not in entry.data
 
@@ -179,7 +194,7 @@ async def test_migrate_large_mesh_maps_to_data_only():
 async def test_migrate_neither_maps_to_full():
     ok, entry = await _run(2, {})
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[CONF_MODE] == MODE_FULL
 
 
@@ -217,7 +232,7 @@ async def test_migrate_v1_chains_to_v4():
     """
     ok, entry = await _run(1, {})
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[CONF_MODE] == MODE_FULL
     assert const.CONF_MCRPC_LISTEN_MODE in entry.data
     assert _LEGACY_DISABLE not in entry.data
@@ -229,7 +244,7 @@ async def test_migrate_v1_with_large_mesh_chains_to_data_only():
     """A v1 entry that already carried large_mesh_mode=True lands on data_only at v4."""
     ok, entry = await _run(1, {_LEGACY_LARGE_MESH: True})
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[CONF_MODE] == MODE_DATA_ONLY
     assert _LEGACY_LARGE_MESH not in entry.data
 
@@ -250,7 +265,7 @@ async def test_migrate_v3_to_v4_mcrpc_keys():
         {"name": "Home", "mcrpc_enabled": True, "mcrpc_channel": 1},
     )
     assert ok is True
-    assert entry.version == 4
+    assert entry.version == SCHEMA_VERSION
     assert entry.data[const.CONF_MCRPC_LISTEN_MODE] == const.MCRPC_LISTEN_SELECTED
     assert entry.data[const.CONF_MCRPC_LISTEN_CHANNELS] == [1]
     assert entry.data[const.CONF_MCRPC_ACCEPT_BARE] is True

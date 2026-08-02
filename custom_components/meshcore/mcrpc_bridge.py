@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, callback
@@ -292,6 +293,13 @@ class McRpcBridge:
             return [str(a) for a in arguments]
         return [str(arguments)]
 
+    @staticmethod
+    def _canonical_command(command: str | None) -> str:
+        cmd = (command or "").strip().lower()
+        if cmd == "discover":
+            return "discovery"
+        return cmd
+
     def _base_payload(
         self,
         *,
@@ -372,7 +380,7 @@ class McRpcBridge:
                 if k not in {"parameters", "fields", "raw", "request_id"}
             }
 
-        if response.kind.name == "Discover" or cmd == "discover":
+        if response.kind.name == "Discover" or cmd in {"discover", "discovery"}:
             shaped = self._mcrpc.parse_discover_fields(body)
             return {
                 k: v
@@ -591,7 +599,7 @@ class McRpcBridge:
             )
 
         self._ensure_ready()
-        cmd = (command or "").strip().lower()
+        cmd = self._canonical_command(command)
         if not cmd:
             raise ValueError("command is required")
         dest = (target or "").strip()
@@ -599,7 +607,7 @@ class McRpcBridge:
             raise ValueError("target is required")
 
         # Serve from cache when fresh (discover/status/battery/caps)
-        if wait and cmd in {"discover", "status", "battery", "caps"}:
+        if wait and cmd in {"discovery", "status", "battery", "caps"}:
             if not self.registry.needs_refresh(dest, cmd):
                 node = self.registry.get(dest)
                 if node:
@@ -628,7 +636,7 @@ class McRpcBridge:
 
     def _cached_response(self, target: str, command: str, node) -> dict[str, Any]:
         data: dict[str, Any]
-        if command == "discover":
+        if command in {"discover", "discovery"}:
             data = {
                 "device": node.display_name,
                 "profile": node.profile,
@@ -674,7 +682,7 @@ class McRpcBridge:
     ) -> dict[str, Any]:
         """Ask all listening nodes. When wait=true, collect responses[] until timeout."""
         self._ensure_ready()
-        cmd = (command or "").strip().lower()
+        cmd = self._canonical_command(command)
         if not cmd:
             raise ValueError("command is required")
 
@@ -737,7 +745,7 @@ class McRpcBridge:
             is_broadcast = req.address_kind.name == "All"
             sent = await self._async_send_line(
                 target=dest,
-                command=req.command,
+                command=self._canonical_command(req.command),
                 arguments=list(req.args),
                 request_id=req.request_id if req.has_request_id else None,
                 timeout=to,
@@ -977,13 +985,13 @@ class McRpcBridge:
             body = "pong"
         elif cmd == "status":
             body = f"status name={name} profile=ha"
-        elif cmd == "discover":
+        elif cmd in {"discover", "discovery"}:
             body = (
-                f"discover name={name} profile=ha protocol=1.0 "
+                f"discovery name={name} profile=ha protocol=1.0 "
                 f"sdk={getattr(self._mcrpc, 'SDK_VERSION', '1.0.0')}"
             )
         elif cmd in {"help", "caps"}:
-            body = "ok ha ping status discover"
+            body = "ok ha ping status discovery"
         else:
             body = self._mcrpc.build_error("unsupported")
         return self._mcrpc.prefix_request_id(body, rid)
@@ -998,8 +1006,9 @@ class McRpcBridge:
         if not api or not getattr(api, "connected", False):
             self._note_error("reply_identity_offline")
             return
+        fallback_timestamp = int(time.time())
         result = await api.mesh_core.commands.send_chan_msg(
-            int(channel_idx), text, timestamp=int(time.time())
+            int(channel_idx), text, timestamp=fallback_timestamp
         )
         from meshcore.events import EventType
 
@@ -1028,8 +1037,42 @@ class McRpcBridge:
             reply_entry_id=reply_entry_id,
         )
 
+        send_timestamp = fallback_timestamp
+        payload = getattr(result, "payload", None)
+        if isinstance(payload, dict):
+            device_ts = payload.get("timestamp")
+            if isinstance(device_ts, (int, float)):
+                send_timestamp = int(device_ts)
+
+        # Keep chat history and radio transport synchronized: every transmitted
+        # mcRPC auto-reply must flow through the same outgoing message pipeline.
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_message_sent",
+            {
+                "origin": "mcrpc_answer",
+                "device": reply_entry_id,
+                "message_type": "channel",
+                "message": text,
+                "channel_idx": int(channel_idx),
+                "timestamp": int(time.time()),
+                "send_timestamp": send_timestamp,
+                "send_id": f"mcrpc_{uuid.uuid4().hex[:8]}",
+            },
+        )
+
     _BARE_COMMANDS = frozenset(
-        {"ping", "status", "discover", "gps", "battery", "help", "caps", "voltage", "charging"}
+        {
+            "ping",
+            "status",
+            "discover",
+            "discovery",
+            "gps",
+            "battery",
+            "help",
+            "caps",
+            "voltage",
+            "charging",
+        }
     )
 
     def _answer_dedup_key(
@@ -1132,6 +1175,8 @@ class McRpcBridge:
             channel_idx=channel_idx,
         )
 
+        req.command = self._canonical_command(getattr(req, "command", ""))
+
         decision = pol.decide_inbound_request(
             channel_idx=channel_idx,
             sender_name=source,
@@ -1168,6 +1213,8 @@ class McRpcBridge:
     def _on_message_sent(self, event: Event) -> None:
         """Fast path: HA Chat / send_channel_message → answer without 4s delay."""
         data = event.data or {}
+        if data.get("origin") == "mcrpc_answer":
+            return
         if data.get("device") != self.entry.entry_id:
             return
         if data.get("message_type") != "channel":
