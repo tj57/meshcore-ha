@@ -4,12 +4,31 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+echo "== Docs (RC policy) =="
+test -f docs/DEVELOPMENT_RULES.md
+test -f docs/QA_CHANNEL_POLICY.md
+test -f docs/STRESS_METHODOLOGY.md
+test -f docs/RELEASE_PROCESS.md
+test -f docs/RELEASE_CHECKLIST.md
+grep -q 'Public is completely out of scope' docs/QA_CHANNEL_POLICY.md
+grep -q 'mcYogi' docs/DEVELOPMENT_RULES.md
+grep -q 'mcCtrl' docs/DEVELOPMENT_RULES.md
+grep -qi 'never generates' docs/DEVELOPMENT_RULES.md
+grep -q '100-ping burst' docs/STRESS_METHODOLOGY.md
+grep -q '5 requests' docs/STRESS_METHODOLOGY.md
+grep -q '30 minutes' docs/STRESS_METHODOLOGY.md
+grep -q 'table_full' docs/STRESS_METHODOLOGY.md
+# Negative Public QA scenario must be gone from policy docs
+! grep -qiE 'one negative|reserved for.*negative' docs/QA_CHANNEL_POLICY.md docs/MCRPC.md
+
 echo "== HACS installable schema =="
 python3 scripts/check_hacs_installable_schema.py
 
-echo "== Unit / migration / HACS / Chat E2E =="
+echo "== Unit / migration / HACS / Chat E2E / stress policy =="
 if [[ -x /tmp/meshcore-ha-venv/bin/pytest ]]; then
   PYTEST=/tmp/meshcore-ha-venv/bin/pytest
+elif [[ -x .venv-test/bin/pytest ]]; then
+  PYTEST=.venv-test/bin/pytest
 elif command -v pytest >/dev/null 2>&1; then
   PYTEST=pytest
 else
@@ -24,8 +43,10 @@ $PYTEST tests/test_hacs_config_entry_upgrade.py \
         tests/test_diagnostics_download.py \
         tests/test_mcrpc_policy.py \
         tests/test_mcrpc.py \
+        tests/test_stress_methodology_docs.py \
         -q --strict-markers
 
 MANIFEST=$(jq -r .version custom_components/meshcore/manifest.json)
 echo "== manifest version: $MANIFEST =="
+echo "== Reminder: GitHub Release v${MANIFEST} must be Latest (not draft/prerelease) =="
 echo "release-check PASS"

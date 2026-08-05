@@ -1,27 +1,39 @@
-# QA channel policy (Mesh Node Requests / mcRPC)
+# QA channel policy (mcRPC)
 
-## Hard rule
+## Policy
 
-| Channel | Allowed use in QA |
-|---------|-------------------|
-| **mcCtrl** (typically channel index 1) | **All positive tests** — ping, status, discovery, chat E2E, stress, automations |
-| **Public** (channel index 0) | **Exactly one negative test** — verify that answering / listening on Public is denied or disabled by secure defaults |
+| Channel | mcRPC / QA |
+|---------|------------|
+| **Private / mcCtrl Config Entry path** | All protocol tests |
+| **Public** (channel index 0) | **Out of scope** — do not use |
 
-Never run happy-path Chat or `meshcore.request` traffic on Public during release QA.
+Public is completely out of scope for mcRPC.
 
-## Rationale
+- mcRPC does not use Public.
+- QA must **not** transmit protocol commands on Public.
+- Public Chat history and behaviour belong to **MeshCore Chat**, not mcRPC.
 
-Public is the shared mesh broadcast channel. Using it for positive tests pollutes the air, risks third-party clients treating requests as chat, and bypasses the secure-default policy the RC ships with.
+There is **no** negative Public-channel QA scenario. Such tests created
+misleading Chat history and are removed from the release process.
 
-## Negative-only Public checklist
+## Production vs Config Entry title
 
-1. Confirm Mesh Node Requests is **not** listening on Public by default.
-2. If temporarily enabled for the negative test: send one addressed request and expect deny / no answer per policy.
-3. Revert listen settings to mcCtrl-only before continuing the suite.
+| Field | Production value | Notes |
+|-------|------------------|-------|
+| Node / channel name | **mcYogi** | Never rename in tests |
+| Config Entry title | **mcCtrl** | Cosmetic; keep for compatibility |
 
-## Positive suite (mcCtrl only)
+Do not rename the Config Entry. Device name and entry title may differ.
 
-- Chat: `mcCtrl ping`, `mcCtrl#<id> ping`
-- Services: `meshcore.request` / `broadcast` / `raw` on mcCtrl
-- Stress / diagnostics capture on mcCtrl
-- HACS upgrade + migration restarts with mcCtrl entry title (`mcCtrl`)
+## What to test on
+
+- Chat / `meshcore.request` / stress / diagnostics on the private channel
+  associated with the Config Entry (title may read `mcCtrl`).
+- Never change production PSKs or node names; use backup/restore if a disposable
+  lab config is required.
+
+## Related
+
+- [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md)
+- [PUBLIC_CHANNEL_PATH.md](PUBLIC_CHANNEL_PATH.md) — why Public Chat lines are not mcRPC
+- [STRESS_METHODOLOGY.md](STRESS_METHODOLOGY.md)

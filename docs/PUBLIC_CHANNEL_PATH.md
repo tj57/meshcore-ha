@@ -1,43 +1,37 @@
-# Public channel packet path
+# Public channel and mcRPC
 
-## Symptom
+## Policy
 
-QA saw `all ping` appear in **Public** Chat history even when Mesh Node Requests
-was configured with `listen_channels=[1]` (mcCtrl only).
+**Public is out of scope for mcRPC.**
 
-## Layers
+mcRPC must not be QA’d, stressed, or demonstrated on Public. MeshCore Chat may
+still show Public traffic; that is Chat / companion behaviour, not the node-request
+bridge.
+
+## Packet path (informational)
 
 ```
-Phone / MeshCore Android Chat (channel 0 Public)
-  → companion radio CMD_SEND_CHANNEL_TXT_MSG (channel_idx=0)
-  → LoRa GRP_TXT on Public PSK
-  → companion RX → MeshCore HA Chat / logbook (UI history)
-  → bus event meshcore_message {channel_idx: 0, message: "all ping"|…}
-  → McRpcBridge._on_meshcore_message
+MeshCore Chat / companion (any channel the radio decrypts)
+  → HA logbook / Chat history
+  → meshcore_message { channel_idx, message }
+  → McRpcBridge
 ```
 
-## Who creates the Chat line?
+When `channel_idx` is not in `listen_channels`, the bridge returns immediately:
 
-| Component | Role |
-|-----------|------|
-| **MeshCore Chat / companion** | Persists TX/RX channel text for **every** channel the radio decrypts. This is **not** mcRPC. Typing or receiving `all ping` on Public shows in Public history by design of Chat. |
-| **meshcore-ha logbook** | Forwards companion channel messages onto `meshcore_message` for all channels. |
-| **mcRPC / McRpcBridge** | Must **not** parse, dispatch, trace, answer, or emit node-request events for channels outside `listen_channels`. |
+- no parse
+- no dispatcher
+- no trace
+- no answer
+- no mcRPC events
 
-## Required mcRPC behaviour (`listen=[1]`)
+## Do not
 
-On `channel_idx=0` (Public):
+- Transmit `all ping` / protocol verbs on Public for QA
+- Treat Public Chat lines as mcRPC failures
+- Add a “negative Public” QA scenario (removed — it polluted Chat history)
 
-1. Return immediately in `_on_meshcore_message` / `_on_message_sent` / `_maybe_answer_inbound`
-2. No `strip_sender_prefix` / parse / classify
-3. No `recent_traces` append
-4. No `rx_count` bump
-5. No answer TX
-6. No `meshcore_response` / `meshcore_event` from the bridge
+## Do
 
-Chat UI history on Public may still show the line — that traffic never entered mcRPC.
-
-## Negative test only
-
-Public remains allowed solely for one secure-default negative QA case
-(see `QA_CHANNEL_POLICY.md`). Positive protocol traffic uses **mcCtrl** only.
+- Run all mcRPC protocol tests on the private channel / Config Entry path
+- Keep production node/channel **mcYogi** unchanged

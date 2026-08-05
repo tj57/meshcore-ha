@@ -102,16 +102,22 @@ Today typically **This radio**; architecture supports multiple local radios late
 
 For **new** installs (or never-enabled mcRPC):
 
-- Do **not** listen on Public (channel 0) until you select it
-
-## QA channel policy
-
-**Positive tests must use mcCtrl.** Public (channel 0) is reserved for **one
-negative test only** (verify secure defaults deny / do not answer). Full policy:
-[QA_CHANNEL_POLICY.md](QA_CHANNEL_POLICY.md).
+- Do **not** listen on Public (channel 0) — Public is out of scope for mcRPC
 - Do **not** answer bare commands
 - Only answer on configured private / selected channels
 - Only answer addressed or broadcast (when those toggles are on)
+
+## QA channel policy
+
+**Public is completely out of scope.** mcRPC does not use Public; QA must not
+transmit protocol commands on Public. Public Chat belongs to MeshCore Chat.
+
+All protocol / stress tests use the private channel / Config Entry path
+(entry title may be **`mcCtrl`**; production node/channel names stay **`mcYogi`**
+— do not rename either). Full policy: [QA_CHANNEL_POLICY.md](QA_CHANNEL_POLICY.md).
+
+Stress uses the paced methodology in [STRESS_METHODOLOGY.md](STRESS_METHODOLOGY.md)
+— never a 100-ping RF pass/fail burst.
 
 Existing installs that already had mcRPC enabled are migrated to keep working
 (see [Migration](#migration)).

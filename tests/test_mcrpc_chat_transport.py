@@ -374,7 +374,7 @@ async def test_unknown_command_answers_unknown_command_not_unsupported():
     event.data = {
         "message": "mcCtrl nosuch",
         "sender_name": "Phone",
-        "channel_idx": 1,  # mcCtrl — positive/negative protocol test channel
+        "channel_idx": 1,  # private / Config Entry path (never Public)
         "message_type": "channel",
     }
     b._on_meshcore_message(event)
@@ -411,7 +411,7 @@ async def test_known_unavailable_commands_return_unsupported(cmd: str):
 
 @pytest.mark.asyncio
 async def test_public_channel_ignored_when_listen_mcctrl_only():
-    """listen_channels=[1]: Public (0) traffic must not parse/trace/answer."""
+    """Regression: Public out of scope — listen=[1] must not parse/trace/answer."""
     b = _bridge(
         {
             const.CONF_MCRPC_LISTEN_MODE: const.MCRPC_LISTEN_SELECTED,

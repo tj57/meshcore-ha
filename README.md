@@ -33,10 +33,18 @@ This fork adds optional [mesh node requests](docs/MCRPC.md) (`meshcore.request`,
 Disabled by default — enable under **Configure → Mesh Node Requests (mcRPC)**.
 
 Configure listening channels, addressing, allowed senders, and reply identity there.
-Secure defaults: no answer on Public, bare commands off.
+Secure defaults: bare commands off. **Public is out of scope for mcRPC** (MeshCore
+Chat only) — do not QA protocol commands on Public.
 
+Config Entry title may remain **`mcCtrl`** while the production device/channel
+name is **`mcYogi`** — they may differ; do not rename production identities.
+
+- Guide: [MCRPC.md](docs/MCRPC.md)
+- Development rules: [DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md)
+- QA channel policy: [QA_CHANNEL_POLICY.md](docs/QA_CHANNEL_POLICY.md)
+- Stress methodology: [STRESS_METHODOLOGY.md](docs/STRESS_METHODOLOGY.md)
+- Release process: [RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)
 - Architecture: [ARCHITECTURE_MCRPC.md](docs/ARCHITECTURE_MCRPC.md)
-- Roadmap: [ROADMAP_MCRPC.md](docs/ROADMAP_MCRPC.md)
 - Example automations: [`examples/automations/`](examples/automations/)
 
 ---
@@ -138,7 +146,14 @@ When enabled (off by default), the integration polls the locally-attached compan
 
 ### Testing
 
-Run tests with pytest:
+Pre-tag / pre-HACS gate:
+
+```bash
+./scripts/release-check
+```
+
+Or run pytest directly:
+
 ```bash
 pytest tests/
 ```
