@@ -103,6 +103,12 @@ Today typically **This radio**; architecture supports multiple local radios late
 For **new** installs (or never-enabled mcRPC):
 
 - Do **not** listen on Public (channel 0) until you select it
+
+## QA channel policy
+
+**Positive tests must use mcCtrl.** Public (channel 0) is reserved for **one
+negative test only** (verify secure defaults deny / do not answer). Full policy:
+[QA_CHANNEL_POLICY.md](QA_CHANNEL_POLICY.md).
 - Do **not** answer bare commands
 - Only answer on configured private / selected channels
 - Only answer addressed or broadcast (when those toggles are on)
@@ -154,11 +160,15 @@ Legacy `meshcore_mcrpc_*` aliases still fire.
 
 **Settings → Devices & Services → MeshCore → Download diagnostics**
 
+Also available via Home Assistant REST:
+`GET /api/config/config_entries/entry/{entry_id}/diagnostics`
+
 Includes:
 
 | Field | Description |
 |-------|-------------|
 | Enabled | Feature on/off |
+| Current channel | Default TX channel index (mcCtrl in QA) |
 | Listening channels | Indexes or `all` |
 | Accepted addressing | broadcast / addressed / bare |
 | Allowed senders mode | any / contacts / allowlist |
@@ -166,8 +176,11 @@ Includes:
 | Known nodes | Node Registry snapshot |
 | Average RTT | Mean latency of matched replies |
 | Packet loss | Estimated from wait timeouts vs matches |
-| Last RX / Last TX | Most recent traffic |
+| Last RX / Last TX | Most recent traffic (includes raw payloads) |
 | Parser errors | Unparseable inbound lines |
+| Parser statistics | parse_ok / parse_unknown / rx / tx counters |
+| Recent traces | Last 50 pipeline stages (`tx_ok`, `tx_error`, …) |
+| TX pipeline | Companion error split (`not_found` vs `table_full`) |
 
 ---
 

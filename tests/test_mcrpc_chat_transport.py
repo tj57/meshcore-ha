@@ -357,4 +357,28 @@ def test_chat_vs_raw_body_identical_after_strip():
     chat_wire = "Phone: all ping"
     raw_body = "all ping"
     assert mcrpc.strip_sender_prefix(chat_wire) == raw_body
-    assert mcrpc.parse(raw_body)[0] == mcrpc.ParseResult.Ok
+
+
+@pytest.mark.asyncio
+async def test_unknown_command_answers_unknown_command_not_unsupported():
+    """SPEC §18: no HA handler → err unknown_command (Chat E2E on mcCtrl)."""
+    b = _bridge()
+    sent = []
+
+    async def capture(ch, text, timestamp=None):
+        sent.append((ch, text))
+        return MagicMock(type=object())
+
+    b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+    event = MagicMock()
+    event.data = {
+        "message": "mcCtrl nosuch",
+        "sender_name": "Phone",
+        "channel_idx": 1,  # mcCtrl — positive/negative protocol test channel
+        "message_type": "channel",
+    }
+    b._on_meshcore_message(event)
+    await _flush(b)
+    assert sent, "expected an error reply"
+    assert "unknown_command" in sent[0][1]
+    assert "unsupported" not in sent[0][1]

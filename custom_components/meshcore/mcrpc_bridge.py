@@ -39,15 +39,49 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _import_mcrpc():
-    """Import the standalone mcrpc package (never duplicate protocol here)."""
+    """Import the standalone mcrpc package (never duplicate protocol here).
+
+    Resolution order:
+    1. Installed distribution (manifest git requirement)
+    2. Vendored copy under ``custom_components/meshcore/vendor/``
+    """
+    import sys
+    from pathlib import Path
+
+    def _is_our_mcrpc(mod) -> bool:
+        # Reject the unrelated PyPI "mcrpc" 2.x package if somehow imported.
+        return hasattr(mod, "parse") and hasattr(mod, "build_error")
+
     try:
-        import mcrpc  # type: ignore
-        return mcrpc
+        import mcrpc as mod  # type: ignore
+
+        if _is_our_mcrpc(mod):
+            return mod
+    except ImportError:
+        pass
+
+    vendor = Path(__file__).resolve().parent / "vendor"
+    vendor_s = str(vendor)
+    if vendor_s not in sys.path:
+        sys.path.insert(0, vendor_s)
+    try:
+        # Fresh import from vendor path
+        if "mcrpc" in sys.modules and not _is_our_mcrpc(sys.modules["mcrpc"]):
+            del sys.modules["mcrpc"]
+        import mcrpc as mod  # type: ignore
+
+        if _is_our_mcrpc(mod):
+            return mod
     except ImportError as err:  # pragma: no cover - env dependent
         raise RuntimeError(
             "Mesh node requests require the mcrpc Python package. "
-            "Install: pip install -e /path/to/mcrpc/python"
+            "Install from https://github.com/tj57/mcrpc (python/) or use the "
+            "vendored copy under custom_components/meshcore/vendor/."
         ) from err
+    raise RuntimeError(
+        "An incompatible 'mcrpc' package is installed. "
+        "Uninstall the PyPI package and install tj57/mcrpc."
+    )
 
 
 class McRpcBridge:
@@ -92,6 +126,10 @@ class McRpcBridge:
             "recent_errors": [],
             "recent_denials": [],
             "recent_traces": [],
+            "setup_error": None,
+            "tx_errors_not_found": 0,
+            "tx_errors_table_full": 0,
+            "tx_errors_other": 0,
         }
         # Dedup keys for (channel, body, send_id/timestamp) recently answered
         self._recent_answer_keys: dict[str, float] = {}
@@ -546,8 +584,20 @@ class McRpcBridge:
 
         if result.type == EventType.ERROR:
             self._correlator.take(pending.request_id)
-            self._note_error(str(result.payload))
-            raise RuntimeError(f"Failed to send node request: {result.payload}")
+            err_payload = result.payload
+            classified = self._classify_companion_tx_error(err_payload)
+            self._note_error(str(err_payload))
+            self._trace(
+                "tx_error",
+                channel_idx=channel_idx,
+                raw_tx=line,
+                error=str(err_payload),
+                classified=classified,
+                request_id=pending.request_id,
+            )
+            raise RuntimeError(
+                f"Failed to send node request ({classified}): {err_payload}"
+            )
 
         self.stats["tx_count"] = int(self.stats["tx_count"]) + 1
         self.stats["last_tx"] = {
@@ -557,6 +607,13 @@ class McRpcBridge:
             "request_id": pending.request_id,
             "command": pending.command,
         }
+        self._trace(
+            "tx_ok",
+            channel_idx=channel_idx,
+            raw_tx=line,
+            request_id=pending.request_id,
+            command=pending.command,
+        )
 
         if broadcast:
             self._broadcast_buckets[pending.request_id] = []
@@ -972,7 +1029,39 @@ class McRpcBridge:
             "policy": pol.summary(),
             "recent_traces": self.stats.get("recent_traces"),
             "device_mapper_preview": self.list_cached_nodes().get("devices_preview"),
+            "setup_error": self.stats.get("setup_error"),
+            "tx_pipeline": {
+                "tx_count": self.stats.get("tx_count"),
+                "tx_errors_not_found": self.stats.get("tx_errors_not_found"),
+                "tx_errors_table_full": self.stats.get("tx_errors_table_full"),
+                "tx_errors_other": self.stats.get("tx_errors_other"),
+                "tx_wait_expected": self.stats.get("tx_wait_expected"),
+                "rx_matched": self.stats.get("rx_matched"),
+                "timeouts": self.stats.get("timeouts"),
+            },
         }
+
+    def _classify_companion_tx_error(self, payload: Any) -> str:
+        """Map companion serial errors to stable stress-analysis labels.
+
+        Companion historically returned ERR_CODE_NOT_FOUND for both a missing
+        channel_idx *and* sendGroupMessage failure (pool/queue full). Firmware
+        now returns ERR_CODE_TABLE_FULL for the latter; keep string matching for
+        both shapes so diagnostics remain accurate across versions.
+        """
+        text = str(payload or "").upper()
+        if "TABLE_FULL" in text or text.strip() in {"3", "ERR_CODE_TABLE_FULL"}:
+            self.stats["tx_errors_table_full"] = (
+                int(self.stats.get("tx_errors_table_full") or 0) + 1
+            )
+            return "table_full"
+        if "NOT_FOUND" in text or text.strip() in {"2", "ERR_CODE_NOT_FOUND"}:
+            self.stats["tx_errors_not_found"] = (
+                int(self.stats.get("tx_errors_not_found") or 0) + 1
+            )
+            return "not_found"
+        self.stats["tx_errors_other"] = int(self.stats.get("tx_errors_other") or 0) + 1
+        return "other"
 
     def _build_answer_body(self, req) -> str:
         """Minimal HA-side answers for inbound mesh requests."""
@@ -993,7 +1082,10 @@ class McRpcBridge:
         elif cmd in {"help", "caps"}:
             body = "ok ha ping status discovery"
         else:
-            body = self._mcrpc.build_error("unsupported")
+            # Spec §18: no handler registered → unknown_command.
+            # err unsupported is reserved for a known command whose feature
+            # is unavailable on this device (not applicable to the HA stub).
+            body = self._mcrpc.build_error("unknown_command")
         return self._mcrpc.prefix_request_id(body, rid)
 
     async def _async_send_answer(self, channel_idx: int, text: str) -> None:
@@ -1013,12 +1105,15 @@ class McRpcBridge:
         from meshcore.events import EventType
 
         if getattr(result, "type", None) == EventType.ERROR:
-            self._note_error(str(getattr(result, "payload", "send_error")))
+            err_payload = getattr(result, "payload", "send_error")
+            classified = self._classify_companion_tx_error(err_payload)
+            self._note_error(str(err_payload))
             self._trace(
                 "tx_error",
                 channel_idx=channel_idx,
                 transmitted_payload=text,
-                error=str(getattr(result, "payload", "")),
+                error=str(err_payload),
+                classified=classified,
             )
             return
         self.stats["answered"] = int(self.stats["answered"]) + 1
@@ -1034,6 +1129,7 @@ class McRpcBridge:
             "tx",
             channel_idx=channel_idx,
             transmitted_payload=text,
+            reply=True,
             reply_entry_id=reply_entry_id,
         )
 

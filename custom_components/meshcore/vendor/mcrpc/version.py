@@ -1,0 +1,16 @@
+"""Protocol / SDK / library version axes (mirror C++ Version.h)."""
+
+PROTOCOL_VERSION_MAJOR = 1
+PROTOCOL_VERSION_MINOR = 0
+PROTOCOL_VERSION = "1.0"
+
+SDK_VERSION_MAJOR = 1
+SDK_VERSION_MINOR = 0
+SDK_VERSION_PATCH = 0
+SDK_VERSION = "1.0.0"
+
+LIBRARY_VERSION = "1.0.0"
+
+
+def protocol_version_code() -> int:
+    return PROTOCOL_VERSION_MAJOR * 100 + PROTOCOL_VERSION_MINOR

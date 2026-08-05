@@ -799,16 +799,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.info("MESSAGES_WAITING auto-fetch subscriber registered")
 
-    # Optional mcRPC bridge (default off)
+    # Optional mcRPC bridge (default off).
+    # Keep the bridge object even when runtime setup fails so diagnostics
+    # download still exposes config, policy, and setup_error — never wipe it.
     try:
         from .mcrpc_bridge import McRpcBridge
 
         bridge = McRpcBridge(hass, coordinator, entry)
         coordinator.mcrpc_bridge = bridge
-        await bridge.async_setup()
+        try:
+            await bridge.async_setup()
+        except Exception as ex:
+            _LOGGER.warning(
+                "mcRPC bridge setup failed: %s - diagnostics remain available",
+                ex,
+            )
+            bridge.stats["setup_error"] = str(ex)
     except Exception as ex:
-        _LOGGER.warning("mcRPC bridge failed to start: %s - continuing without it", ex)
-        coordinator.mcrpc_bridge = None
+        _LOGGER.warning("mcRPC bridge failed to construct: %s - continuing without it", ex)
+        if not hasattr(coordinator, "mcrpc_bridge"):
+            coordinator.mcrpc_bridge = None
 
     # Fetch initial data immediately
     # await coordinator._async_update_data()
