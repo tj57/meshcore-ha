@@ -382,3 +382,62 @@ async def test_unknown_command_answers_unknown_command_not_unsupported():
     assert sent, "expected an error reply"
     assert "unknown_command" in sent[0][1]
     assert "unsupported" not in sent[0][1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cmd", ["battery", "gps"])
+async def test_known_unavailable_commands_return_unsupported(cmd: str):
+    """SPEC §18: battery/gps are known but unavailable on HA → unsupported."""
+    b = _bridge()
+    sent = []
+
+    async def capture(ch, text, timestamp=None):
+        sent.append((ch, text))
+        return MagicMock(type=object())
+
+    b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+    event = MagicMock()
+    event.data = {
+        "message": f"mcCtrl {cmd}",
+        "sender_name": "Phone",
+        "channel_idx": 1,
+        "message_type": "channel",
+    }
+    b._on_meshcore_message(event)
+    await _flush(b)
+    assert sent and "unsupported" in sent[0][1]
+    assert "unknown_command" not in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_public_channel_ignored_when_listen_mcctrl_only():
+    """listen_channels=[1]: Public (0) traffic must not parse/trace/answer."""
+    b = _bridge(
+        {
+            const.CONF_MCRPC_LISTEN_MODE: const.MCRPC_LISTEN_SELECTED,
+            const.CONF_MCRPC_LISTEN_CHANNELS: [1],
+        }
+    )
+    sent = []
+
+    async def capture(ch, text, timestamp=None):
+        sent.append((ch, text))
+        return MagicMock(type=object())
+
+    b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+    before_rx = int(b.stats.get("rx_count") or 0)
+    before_traces = list(b.stats.get("recent_traces") or [])
+
+    event = MagicMock()
+    event.data = {
+        "message": "all ping",
+        "sender_name": "Phone",
+        "channel_idx": 0,  # Public
+        "message_type": "channel",
+    }
+    b._on_meshcore_message(event)
+    await _flush(b)
+
+    assert not sent
+    assert int(b.stats.get("rx_count") or 0) == before_rx
+    assert list(b.stats.get("recent_traces") or []) == before_traces

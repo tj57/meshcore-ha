@@ -1063,6 +1063,34 @@ class McRpcBridge:
         self.stats["tx_errors_other"] = int(self.stats.get("tx_errors_other") or 0) + 1
         return "other"
 
+    # Standard optional commands known to the protocol but not implemented by the
+    # HA stub radio. SPEC §18 → err unsupported (handler conceptually present,
+    # feature unavailable). Truly unknown verbs → err unknown_command.
+    _KNOWN_UNAVAILABLE_COMMANDS = frozenset(
+        {
+            "battery",
+            "voltage",
+            "charging",
+            "gps",
+            "location",
+            "track",
+            "relay",
+            "toggle",
+            "power",
+            "display",
+            "text",
+            "clear",
+            "led",
+            "reboot",
+            "ota",
+            "reset",
+            "beep",
+            "temp",
+            "get",
+            "set",
+        }
+    )
+
     def _build_answer_body(self, req) -> str:
         """Minimal HA-side answers for inbound mesh requests."""
         assert self._mcrpc is not None
@@ -1081,10 +1109,9 @@ class McRpcBridge:
             )
         elif cmd in {"help", "caps"}:
             body = "ok ha ping status discovery"
+        elif cmd in self._KNOWN_UNAVAILABLE_COMMANDS:
+            body = self._mcrpc.build_error("unsupported")
         else:
-            # Spec §18: no handler registered → unknown_command.
-            # err unsupported is reserved for a known command whose feature
-            # is unavailable on this device (not applicable to the HA stub).
             body = self._mcrpc.build_error("unknown_command")
         return self._mcrpc.prefix_request_id(body, rid)
 
@@ -1205,6 +1232,9 @@ class McRpcBridge:
         """Evaluate policy and answer inbound requests when allowed."""
         assert self._mcrpc is not None
         pol = self.policy()
+        # Absolute silence on non-listening channels: no parse, no trace, no answer.
+        if not pol.channel_allowed(channel_idx):
+            return
         self._trace(
             "answer_eval",
             transport=transport,
@@ -1317,6 +1347,10 @@ class McRpcBridge:
             return
         if not self._correlator or not self._mcrpc:
             return
+        channel_idx = int(data.get("channel_idx", self.default_channel))
+        # Non-listening channels (e.g. Public when listen=[mcCtrl]): total silence.
+        if not self.policy().channel_allowed(channel_idx):
+            return
         raw = (data.get("message") or "").strip()
         if not raw:
             return
@@ -1329,7 +1363,7 @@ class McRpcBridge:
             transport="message_sent",
             raw_payload=raw,
             sender=self.entry.data.get("name"),
-            channel_idx=data.get("channel_idx", self.default_channel),
+            channel_idx=channel_idx,
             message_type="channel",
             outgoing=True,
             normalized_text=body,
@@ -1337,7 +1371,7 @@ class McRpcBridge:
         self._maybe_answer_inbound(
             body=body,
             source=self.entry.data.get("name"),
-            channel_idx=int(data.get("channel_idx", self.default_channel)),
+            channel_idx=channel_idx,
             message_type="channel",
             outgoing=True,
             send_id=data.get("send_id"),
@@ -1352,12 +1386,21 @@ class McRpcBridge:
         if not raw or not self._correlator or not self._mcrpc:
             return
 
+        channel_idx = data.get("channel_idx", self.default_channel)
+        try:
+            channel_idx_i = int(channel_idx)
+        except (TypeError, ValueError):
+            channel_idx_i = int(self.default_channel)
+        # listen_channels filter — before strip/parse/classify/trace/stats/events.
+        if not self.policy().channel_allowed(channel_idx_i):
+            return
+
         # Terminal outgoing re-fire after RX_LOG — already handled via message_sent
         if data.get("outgoing") and data.get("rx_log_data") is not None:
             self._trace(
                 "drop",
                 reason="outgoing_terminal_refire",
-                channel_idx=data.get("channel_idx"),
+                channel_idx=channel_idx_i,
                 body=raw,
             )
             return
@@ -1369,7 +1412,7 @@ class McRpcBridge:
 
         kind, response, evt, pending = self._correlator.classify_inbound(body)
         source = data.get("sender_name")
-        channel_idx = data.get("channel_idx", self.default_channel)
+        channel_idx = channel_idx_i
         ts = data.get("timestamp") or dt_util.utcnow().isoformat()
         rssi = data.get("rssi") or data.get("RSSI")
 

@@ -144,10 +144,18 @@ def test_build_answer_unknown_command_not_unsupported():
         sys.path.insert(0, vendor)
     import mcrpc
 
-    # Mimic bridge body builder contract
     body = mcrpc.build_error("unknown_command")
     assert body == "err unknown_command"
     assert "unsupported" not in body
+
+
+def test_build_error_unsupported_for_known_features():
+    vendor = str(BASE / "vendor")
+    if vendor not in sys.path:
+        sys.path.insert(0, vendor)
+    import mcrpc
+
+    assert mcrpc.build_error("unsupported") == "err unsupported"
 
 
 def test_ha123_ping_payload_parses_without_mutation():

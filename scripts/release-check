@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Pre-tag / pre-HACS gate for meshcore-ha.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+echo "== HACS installable schema =="
+python3 scripts/check_hacs_installable_schema.py
+
+echo "== Unit / migration / HACS / Chat E2E =="
+if [[ -x /tmp/meshcore-ha-venv/bin/pytest ]]; then
+  PYTEST=/tmp/meshcore-ha-venv/bin/pytest
+elif command -v pytest >/dev/null 2>&1; then
+  PYTEST=pytest
+else
+  python3 -m venv /tmp/meshcore-ha-venv
+  /tmp/meshcore-ha-venv/bin/pip install -q -r requirements-test.txt
+  PYTEST=/tmp/meshcore-ha-venv/bin/pytest
+fi
+
+$PYTEST tests/test_hacs_config_entry_upgrade.py \
+        tests/test_contact_discovery_migration.py \
+        tests/test_mcrpc_chat_transport.py \
+        tests/test_diagnostics_download.py \
+        tests/test_mcrpc_policy.py \
+        tests/test_mcrpc.py \
+        -q --strict-markers
+
+MANIFEST=$(jq -r .version custom_components/meshcore/manifest.json)
+echo "== manifest version: $MANIFEST =="
+echo "release-check PASS"
