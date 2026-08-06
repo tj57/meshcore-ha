@@ -19,6 +19,7 @@ class Dispatcher:
     def __init__(self) -> None:
         self._handlers: dict[str, CommandHandler] = {}
         self.node_name = ""
+        self.node_id = ""
         self.group_name = ""
 
     def register(self, command: str, handler: CommandHandler) -> None:
@@ -30,6 +31,9 @@ class Dispatcher:
     def set_group_name(self, name: str) -> None:
         self.group_name = name
 
+    def set_node_id(self, node_id: str) -> None:
+        self.node_id = node_id
+
     def _addressed(self, req: Request) -> bool:
         if req.address_kind == AddressKind.All:
             return True
@@ -37,6 +41,12 @@ class Dispatcher:
             return True
         if req.address_kind == AddressKind.Group:
             return bool(self.group_name) and req.target.lower() == self.group_name.lower()
+        if req.address_kind == AddressKind.Id:
+            if not self.node_id:
+                return False
+            full = self.node_id.lower()
+            prefix = req.target.lower()
+            return full == prefix or full.startswith(prefix)
         return bool(self.node_name) and req.target.lower() == self.node_name.lower()
 
     def dispatch(self, line: str) -> str | None:

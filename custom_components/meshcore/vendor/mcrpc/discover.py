@@ -8,16 +8,41 @@ from typing import Any
 from .codec import coerce_number, format_kv, parse_kv_pairs, split_tokens
 from .version import PROTOCOL_VERSION, SDK_VERSION
 
+_CORE_KEYS = frozenset(
+    {
+        "profile",
+        "tag",
+        "fw",
+        "firmware",
+        "board",
+        "protocol",
+        "protocol_min",
+        "protocol_max",
+        "sdk",
+        "name",
+        "id",
+        "caps",
+        "features",
+        "uptime",
+        "auth",
+        "transport",
+        "vendor",
+    }
+)
+
 
 @dataclass
 class ParsedDiscover:
     raw: str
     device: str = ""
     profile: str | None = None
+    tag: str | None = None
+    identity_id: str | None = None
     board: str | None = None
     firmware: str | None = None
     protocol: str | None = None
     sdk: str | None = None
+    uptime: Any = None
     features: dict[str, str] = field(default_factory=dict)
     capabilities: list[str] = field(default_factory=list)
     fields: dict[str, str] = field(default_factory=dict)
@@ -71,22 +96,29 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
     fields = parse_kv_pairs(tokens[1:])
     params = {k: coerce_number(v) for k, v in fields.items()}
 
-    # Feature flags often appear as gps=yes / battery=yes
-    features = {
-        k: v
-        for k, v in fields.items()
-        if k not in {"profile", "fw", "board", "protocol", "sdk", "name"}
-    }
+    # Legacy feature flags: gps=yes / battery=yes
+    features = {k: v for k, v in fields.items() if k not in _CORE_KEYS}
     caps = [k for k, v in features.items() if str(v).lower() in {"yes", "1", "true"}]
+
+    # RFC-0001 caps= CSV
+    if fields.get("caps"):
+        for part in str(fields["caps"]).split(","):
+            c = part.strip().lower()
+            if c and c not in caps:
+                caps.append(c)
+        caps = sorted(set(caps))
 
     return ParsedDiscover(
         raw=text,
         device=device,
         profile=fields.get("profile"),
+        tag=fields.get("tag") or fields.get("profile"),
+        identity_id=fields.get("id"),
         board=fields.get("board"),
         firmware=fields.get("fw") or fields.get("firmware"),
         protocol=fields.get("protocol"),
         sdk=fields.get("sdk"),
+        uptime=params.get("uptime"),
         features=features,
         capabilities=caps,
         fields=fields,

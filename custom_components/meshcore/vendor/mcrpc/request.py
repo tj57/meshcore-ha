@@ -19,6 +19,7 @@ class AddressKind(Enum):
     All = auto()
     Self = auto()
     Group = auto()
+    Id = auto()
 
 
 @dataclass

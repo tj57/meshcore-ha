@@ -55,6 +55,10 @@ def strip_sender_prefix(text: str | None) -> str:
     return msg.lstrip(" \t")
 
 
+def _is_hex_char(c: str) -> bool:
+    return c in "0123456789abcdefABCDEF"
+
+
 def parse(input_text: str | None) -> tuple[ParseResult, Request]:
     """Parse a request line into a :class:`Request`."""
     out = Request()
@@ -73,7 +77,16 @@ def parse(input_text: str | None) -> tuple[ParseResult, Request]:
         return ParseResult.MissingTarget, out
 
     lower_rest = s[i:].lower()
-    if lower_rest.startswith("group:"):
+    if s[i] == "@":
+        i += 1
+        start = i
+        while i < len(s) and _is_hex_char(s[i]):
+            i += 1
+        if i == start:
+            return ParseResult.Malformed, out
+        out.target = s[start:i]
+        out.address_kind = AddressKind.Id
+    elif lower_rest.startswith("group:"):
         out.address_kind = AddressKind.Group
         i += 6
         token, i = _read_token(s, i, ident_only=True)
@@ -93,7 +106,7 @@ def parse(input_text: str | None) -> tuple[ParseResult, Request]:
         else:
             out.address_kind = AddressKind.Named
 
-    # glued #id inside target token: ha#42
+    # glued #id inside target token: node1#42
     hash_pos = out.target.find("#")
     if hash_pos >= 0 and hash_pos + 1 < len(out.target):
         digits = out.target[hash_pos + 1 :]
@@ -102,7 +115,7 @@ def parse(input_text: str | None) -> tuple[ParseResult, Request]:
             out.request_id = int(digits)
             out.target = out.target[:hash_pos]
 
-    # separate "#42" token
+    # separate "#42" token (digits only — not node id)
     i = _skip_spaces(s, i)
     if i < len(s) and s[i] == "#":
         i += 1

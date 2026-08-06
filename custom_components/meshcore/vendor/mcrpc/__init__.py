@@ -55,7 +55,25 @@ _STATUS_KNOWN = frozenset(
     {"name", "profile", "fw", "firmware", "uptime", "rssi", "battery", "voltage", "gps", "sat"}
 )
 _DISCOVER_KNOWN = frozenset(
-    {"profile", "fw", "firmware", "board", "protocol", "sdk", "name"}
+    {
+        "profile",
+        "tag",
+        "fw",
+        "firmware",
+        "board",
+        "protocol",
+        "protocol_min",
+        "protocol_max",
+        "sdk",
+        "name",
+        "id",
+        "caps",
+        "features",
+        "uptime",
+        "auth",
+        "transport",
+        "vendor",
+    }
 )
 
 

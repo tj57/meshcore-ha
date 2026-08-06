@@ -338,6 +338,56 @@ class McRpcBridge:
             return "discovery"
         return cmd
 
+    # RFC-0001: never TX capability / UI-tag tokens as addresses
+    _CAPABILITY_TARGETS = frozenset(
+        {
+            "gps",
+            "battery",
+            "relay",
+            "display",
+            "button",
+            "temperature",
+            "humidity",
+            "mqtt",
+            "wifi",
+            "ota",
+            "led",
+        }
+    )
+    _ROLE_LIKE_TARGETS = frozenset(
+        {"ha", "gateway", "tracker", "sensor", "bridge", "beacon"}
+    )
+
+    def _validate_rf_target(self, target: str, *, broadcast: bool = False) -> str:
+        """Return a wire target; raise if capability/tag addressing is attempted."""
+        dest = (target or "").strip()
+        if broadcast or dest.lower() == "all":
+            return "all"
+        if not dest:
+            raise ValueError("target is required")
+        low = dest.lower()
+        if low == "self" or low.startswith("group:"):
+            return dest
+        if dest.startswith("@"):
+            hexpart = dest[1:]
+            if not hexpart or any(c not in "0123456789abcdefABCDEF" for c in hexpart):
+                raise ValueError(f"invalid @id target: {dest!r}")
+            return dest
+        # Allow identity names that happen to equal a cap/tag if already known
+        if self.registry.get(dest) is not None:
+            return dest
+        if low in self._CAPABILITY_TARGETS:
+            raise ValueError(
+                f"target {dest!r} is a capability, not an identity — "
+                "address a node name or @id (RFC-0001)"
+            )
+        if low in self._ROLE_LIKE_TARGETS:
+            raise ValueError(
+                f"target {dest!r} looks like a UI tag/role — "
+                "resolve to a node identity before TX (RFC-0001)"
+            )
+        return dest
+
     def _base_payload(
         self,
         *,
@@ -560,6 +610,8 @@ class McRpcBridge:
         if not api or not api.connected:
             raise RuntimeError("MeshCore device is not connected")
 
+        target = self._validate_rf_target(target, broadcast=broadcast)
+
         line, pending = self._correlator.build(
             target,
             command,
@@ -662,6 +714,7 @@ class McRpcBridge:
         dest = (target or "").strip()
         if not dest:
             raise ValueError("target is required")
+        dest = self._validate_rf_target(dest, broadcast=False)
 
         # Serve from cache when fresh (discover/status/battery/caps)
         if wait and cmd in {"discovery", "status", "battery", "caps"}:
@@ -697,6 +750,8 @@ class McRpcBridge:
             data = {
                 "device": node.display_name,
                 "profile": node.profile,
+                "tag": node.tag or node.profile,
+                "identity_id": node.identity_id,
                 "board": node.board,
                 "firmware": node.firmware,
                 "protocol": node.protocol,

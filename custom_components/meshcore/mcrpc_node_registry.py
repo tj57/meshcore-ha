@@ -25,6 +25,8 @@ class NodeRecord:
     node_id: str
     display_name: str = ""
     profile: str | None = None
+    tag: str | None = None
+    identity_id: str | None = None  # full hex from discovery id=
     capabilities: list[str] = field(default_factory=list)
     firmware: str | None = None
     protocol: str | None = None
@@ -64,6 +66,8 @@ class NodeRecord:
             "name": self.display_name or self.node_id,
             "display_name": self.display_name or self.node_id,
             "profile": self.profile,
+            "tag": self.tag or self.profile,
+            "identity_id": self.identity_id,
             "capabilities": list(self.capabilities),
             "firmware": self.firmware,
             "protocol": self.protocol,
@@ -183,6 +187,14 @@ class NodeRegistry:
                 node.display_name = str(data["device"])
             if data.get("profile") is not None:
                 node.profile = data.get("profile")
+            if data.get("tag") is not None:
+                node.tag = data.get("tag")
+            elif data.get("profile") is not None and not node.tag:
+                node.tag = data.get("profile")
+            if data.get("identity_id") is not None:
+                node.identity_id = str(data["identity_id"])
+            elif data.get("id") is not None:
+                node.identity_id = str(data["id"])
             if data.get("firmware") is not None:
                 node.firmware = data.get("firmware")
             if data.get("protocol") is not None:
@@ -271,6 +283,31 @@ class NodeRegistry:
             node.extra["last_event_params"] = dict(parameters or {})
         return node
 
+    def nodes_with_tag(self, tag: str) -> list[NodeRecord]:
+        """Client-side UI filter — never use tag as RF target."""
+        t = (tag or "").strip().lower()
+        if not t:
+            return []
+        return [
+            n
+            for n in self.all_nodes()
+            if (n.tag or n.profile or "").strip().lower() == t
+        ]
+
+    def resolve_id_prefix(self, hex_prefix: str) -> NodeRecord | None:
+        """Resolve @prefix to a single cached node (unique prefix)."""
+        p = (hex_prefix or "").strip().lower().lstrip("@")
+        if not p:
+            return None
+        matches = [
+            n
+            for n in self.all_nodes()
+            if n.identity_id and n.identity_id.lower().startswith(p)
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
     # Compat views used by older bridge helpers
     def discover_cache_view(self) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
@@ -280,6 +317,8 @@ class NodeRegistry:
             out[n.node_id] = {
                 "device": n.display_name or n.node_id,
                 "profile": n.profile,
+                "tag": n.tag or n.profile,
+                "identity_id": n.identity_id,
                 "board": n.board,
                 "firmware": n.firmware,
                 "protocol": n.protocol,

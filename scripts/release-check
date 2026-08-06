@@ -44,6 +44,7 @@ $PYTEST tests/test_hacs_config_entry_upgrade.py \
         tests/test_mcrpc_policy.py \
         tests/test_mcrpc.py \
         tests/test_stress_methodology_docs.py \
+        tests/test_mcrpc_rfc0001.py \
         -q --strict-markers
 
 MANIFEST=$(jq -r .version custom_components/meshcore/manifest.json)
