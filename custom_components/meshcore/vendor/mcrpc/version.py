@@ -9,7 +9,7 @@ SDK_VERSION_MINOR = 1
 SDK_VERSION_PATCH = 0
 SDK_VERSION = "1.1.0"
 
-LIBRARY_VERSION = "1.1.0-beta"
+LIBRARY_VERSION = "1.1.0-beta.2"
 
 
 def protocol_version_code() -> int:

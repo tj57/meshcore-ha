@@ -41,9 +41,12 @@ class ParsedDiscover:
     board: str | None = None
     firmware: str | None = None
     protocol: str | None = None
+    protocol_min: str | None = None
+    protocol_max: str | None = None
     sdk: str | None = None
     uptime: Any = None
     features: dict[str, str] = field(default_factory=dict)
+    feature_tokens: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
     fields: dict[str, str] = field(default_factory=dict)
     parameters: dict[str, Any] = field(default_factory=dict)
@@ -81,6 +84,13 @@ class DiscoverBuilder:
         return f"{name} " + format_kv(dict(self._fields))
 
 
+def _canonicalize_csv_tokens(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    tokens = sorted({p.strip().lower() for p in str(raw).split(",") if p.strip()})
+    return tokens
+
+
 def parse_discover(raw: str | None) -> ParsedDiscover:
     """Parse a discover reply; unknown fields remain available."""
     text = (raw or "").strip()
@@ -108,6 +118,8 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
                 caps.append(c)
         caps = sorted(set(caps))
 
+    feature_tokens = _canonicalize_csv_tokens(fields.get("features"))
+
     return ParsedDiscover(
         raw=text,
         device=device,
@@ -117,9 +129,12 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
         board=fields.get("board"),
         firmware=fields.get("fw") or fields.get("firmware"),
         protocol=fields.get("protocol"),
+        protocol_min=fields.get("protocol_min"),
+        protocol_max=fields.get("protocol_max"),
         sdk=fields.get("sdk"),
         uptime=params.get("uptime"),
         features=features,
+        feature_tokens=feature_tokens,
         capabilities=caps,
         fields=fields,
         parameters=params,

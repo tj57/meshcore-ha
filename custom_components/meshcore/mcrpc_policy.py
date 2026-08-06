@@ -1,6 +1,7 @@
 """Security / listening policy for Mesh Node Requests (inbound).
 
 Protocol-agnostic filters: channel, addressing mode, allowed senders.
+RFC-0001: identity name / @id / all only — no role or capability addressing.
 """
 
 from __future__ import annotations
@@ -42,10 +43,20 @@ class InboundDecision:
     addressing: str  # broadcast | addressed | bare | response | event | none
 
 
+def _is_hex(s: str) -> bool:
+    return bool(s) and all(c in "0123456789abcdef" for c in s)
+
+
 class McRpcPolicy:
     """Evaluate whether an inbound channel message may be processed / answered."""
 
-    def __init__(self, entry_data: dict[str, Any], *, entry_id: str) -> None:
+    def __init__(
+        self,
+        entry_data: dict[str, Any],
+        *,
+        entry_id: str,
+        identity_id: str | None = None,
+    ) -> None:
         data = migrate_mcrpc_config(entry_data)
         self.entry_id = entry_id
         self.listen_mode = data.get(CONF_MCRPC_LISTEN_MODE, DEFAULT_MCRPC_LISTEN_MODE)
@@ -59,9 +70,16 @@ class McRpcPolicy:
         self.reply_identity = data.get(CONF_MCRPC_REPLY_IDENTITY, DEFAULT_MCRPC_REPLY_IDENTITY)
         self.answer_requests = bool(data.get(CONF_MCRPC_ANSWER_REQUESTS, True))
         self.local_name = (data.get(CONF_NAME) or "").strip()
-        # Optional extra aliases (e.g. on-device advertised name from coordinator)
+        # Extra *identity* names only (e.g. companion radio name) — never role labels
         extras = data.get("_mcrpc_name_aliases") or []
         self.name_aliases = {str(a).strip().lower() for a in extras if str(a).strip()}
+        self.identity_id = (identity_id or "").strip().lower()
+
+    def identity_names(self) -> set[str]:
+        names: set[str] = set(self.name_aliases)
+        if self.local_name:
+            names.add(self.local_name.lower())
+        return names
 
     def listening_channel_indexes(self) -> list[int] | None:
         """Return concrete indexes, or None meaning all channels."""
@@ -71,7 +89,6 @@ class McRpcPolicy:
             return None
         if self.listen_mode == MCRPC_LISTEN_CURRENT:
             return [self.current_channel]
-        # selected
         return list(self.listen_channels)
 
     def channel_allowed(self, channel_idx: int | None) -> bool:
@@ -109,9 +126,22 @@ class McRpcPolicy:
         kind = getattr(req.address_kind, "name", str(req.address_kind))
         if kind in {"All", "Group"}:
             return "broadcast"
-        if kind in {"Named", "Self"}:
+        if kind in {"Named", "Self", "Id"}:
             return "addressed"
         return "bare"
+
+    def _id_matches(self, target: str) -> bool:
+        """Full or unique-prefix match against local identity_id (case-insensitive)."""
+        if not self.identity_id or not _is_hex(self.identity_id):
+            return False
+        t = (target or "").strip().lower()
+        if not t or not _is_hex(t):
+            return False
+        if t == self.identity_id:
+            return True
+        # Single local peer ⇒ any matching prefix is unambiguous for *this* node.
+        # Clients with multi-node caches must resolve uniqueness before TX.
+        return len(t) >= 1 and self.identity_id.startswith(t)
 
     def addressed_to_us(self, req) -> bool:
         if req is None:
@@ -121,19 +151,16 @@ class McRpcPolicy:
             return True
         if kind == "Self":
             return True
+        if kind == "Id":
+            return self._id_matches(getattr(req, "target", "") or "")
         if kind == "Named":
             target = (req.target or "").strip().lower()
-            aliases = {
-                "ha",
-                "homeassistant",
-                "home-assistant",
-                *self.name_aliases,
-            }
-            if self.local_name:
-                aliases.add(self.local_name.lower())
-            return target in aliases
+            if not target:
+                return False
+            # Identity names only — never hardcoded role aliases (ha, gateway, …)
+            return target in self.identity_names()
         if kind == "Group":
-            return False  # HA is not a group member by default
+            return False
         return False
 
     def decide_inbound_request(
@@ -202,4 +229,7 @@ class McRpcPolicy:
             "reply_identity": self.reply_identity,
             "answer_requests": self.answer_requests,
             "local_name": self.local_name,
+            "identity_names": sorted(self.identity_names()),
+            "identity_id": self.identity_id or None,
+            "identity_id_prefix": (self.identity_id[:12] if self.identity_id else None),
         }

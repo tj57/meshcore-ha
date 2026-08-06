@@ -252,7 +252,11 @@ async def test_message_sent_fast_path_for_local_chat():
     b._on_message_sent(event)
     await _flush(b)
     assert sent, b.stats.get("recent_traces")
-    assert "discovery" in sent[0][1]
+    reply = sent[0][1]
+    assert "protocol=1.1" in reply
+    assert "id=" in reply
+    assert "profile=ha" in reply
+    assert "tag=ha" in reply
 
 
 @pytest.mark.asyncio
@@ -274,7 +278,10 @@ async def test_message_sent_discover_alias_is_still_accepted():
     }
     b._on_message_sent(event)
     await _flush(b)
-    assert sent and "discovery" in sent[0][1]
+    assert sent
+    reply = sent[0][1]
+    assert "protocol=1.1" in reply
+    assert "id=" in reply
 
 
 @pytest.mark.asyncio

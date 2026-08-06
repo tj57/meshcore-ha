@@ -165,20 +165,24 @@ def parse_status_fields(raw: str | None) -> dict:
 def parse_discover_fields(raw: str | None) -> dict:
     """Discover with common aliases; feature flags and unknowns in ``extra``/lists."""
     d = parse_discover(raw)
-    # features that are not core discover fields stay available
-    feature_extra = {
-        k: v for k, v in d.fields.items() if k not in _DISCOVER_KNOWN
-    }
+    feature_extra = {k: v for k, v in d.fields.items() if k not in _DISCOVER_KNOWN}
     return {
         "raw": d.raw,
         "request_id": d.request_id,
         "device": d.device,
         "profile": d.profile,
+        "tag": d.tag,
+        "id": d.identity_id,
+        "identity_id": d.identity_id,
         "board": d.board,
         "firmware": d.firmware,
         "protocol": d.protocol,
+        "protocol_min": d.protocol_min,
+        "protocol_max": d.protocol_max,
         "sdk": d.sdk,
+        "uptime": d.uptime,
         "features": d.features,
+        "feature_tokens": list(d.feature_tokens),
         "capabilities": d.capabilities,
         "extra": {k: coerce_maybe(v) for k, v in feature_extra.items()},
         "parameters": d.parameters,

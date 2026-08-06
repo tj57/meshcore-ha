@@ -7,10 +7,12 @@ Wire protocol details stay inside the standalone ``mcrpc`` package.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 import uuid
-from typing import Any
+from pathlib import Path
+from typing import Any, Iterable
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.util import dt as dt_util
@@ -22,6 +24,7 @@ from .const import (
     CONF_MCRPC_ENTITY_BRIDGE,
     CONF_MCRPC_EVENT_BRIDGE,
     CONF_MCRPC_TIMEOUT,
+    CONF_PUBKEY,
     DEFAULT_MCRPC_CHANNEL,
     DEFAULT_MCRPC_TIMEOUT,
     DOMAIN,
@@ -134,6 +137,100 @@ class McRpcBridge:
         # Dedup keys for (channel, body, send_id/timestamp) recently answered
         self._recent_answer_keys: dict[str, float] = {}
         self._unsub_sent = None
+        # Seconds-since-instance: monotonic clock when node-requests became available
+        self._mcrpc_started_mono: float | None = None
+
+    # ---- identity / discovery helpers (RFC-0001) -----------------------------
+    @staticmethod
+    def _canonicalize_csv(tokens: Iterable[str]) -> str:
+        """Lowercase, unique, alphabetically sorted, no spaces (RFC §5.5)."""
+        cleaned = sorted({str(t).strip().lower() for t in tokens if t and str(t).strip()})
+        return ",".join(cleaned)
+
+    def _integration_version(self) -> str:
+        try:
+            import json
+
+            manifest = Path(__file__).resolve().parent / "manifest.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            return str(data.get("version") or "unknown")
+        except Exception:  # noqa: BLE001 — diagnostics path
+            return "unknown"
+
+    def _local_identity_id(self) -> str:
+        """Canonical peer id for discovery and @id addressing.
+
+        Source (strongest first):
+        1. Config Entry ``pubkey`` / ``coordinator.pubkey`` — MeshCore companion
+           public key (hex), persisted across HA restart/reload.
+        2. Live ``api._last_self_info['public_key']`` when radio has reported SELF_INFO.
+        3. SHA-256 of ``meshcore-ha:{entry_id}`` — deterministic fallback when no
+           radio key is available yet (stable for that Config Entry lifetime).
+
+        Never random-per-restart. Documented for QA in diagnostics ``local_peer``.
+        """
+        candidates: list[str] = []
+        pubkey = getattr(self.coordinator, "pubkey", None) or ""
+        if pubkey:
+            candidates.append(str(pubkey))
+        stored = self.entry.data.get(CONF_PUBKEY) or ""
+        if stored:
+            candidates.append(str(stored))
+        api = getattr(self.coordinator, "api", None)
+        info = getattr(api, "_last_self_info", None) if api else None
+        if isinstance(info, dict) and info.get("public_key"):
+            candidates.append(str(info["public_key"]))
+        for raw in candidates:
+            hex_id = "".join(c for c in raw.strip().lower() if c in "0123456789abcdef")
+            if len(hex_id) >= 8:
+                return hex_id
+        digest = hashlib.sha256(f"meshcore-ha:{self.entry.entry_id}".encode()).hexdigest()
+        return digest
+
+    def _local_uptime_seconds(self) -> int:
+        """Seconds since this bridge instance enabled node-requests (monotonic)."""
+        started = self._mcrpc_started_mono
+        if started is None:
+            return 0
+        return max(0, int(time.monotonic() - started))
+
+    def _identity_name(self) -> str:
+        """Actual node identity name — never a role/tag default like ``ha``."""
+        pol = self.policy()
+        if pol.local_name:
+            return pol.local_name
+        coord = getattr(self.coordinator, "name", None)
+        if coord:
+            return str(coord).strip()
+        return "node"
+
+    def _feature_tokens(self) -> list[str]:
+        # HA peer supports @id + request-id; no device caps → no caps-in-discovery
+        return ["id-addr", "request-id"]
+
+    def _build_discovery_line(self) -> str:
+        """RFC-0001 rev03 Protocol 1.1 discovery (``<name> key=value …``)."""
+        assert self._mcrpc is not None
+        name = self._identity_name()
+        id_hex = self._local_identity_id()
+        sdk = getattr(self._mcrpc, "SDK_VERSION", "1.1.0")
+        proto = getattr(self._mcrpc, "PROTOCOL_VERSION", "1.1")
+        features = self._canonicalize_csv(self._feature_tokens())
+        parts = [
+            name,
+            f"id={id_hex}",
+            "profile=ha",  # legacy 1.0 readers
+            "tag=ha",  # UI metadata only — not an RF address
+            f"fw=meshcore-ha-{self._integration_version()}",
+            f"uptime={self._local_uptime_seconds()}",
+            f"protocol={proto}",
+            "protocol_min=1.0",
+            f"protocol_max={proto}",
+            f"sdk={sdk}",
+            f"features={features}",
+            "transport=meshcore",
+        ]
+        return " ".join(parts)
 
     # ---- compat cache views (list_nodes / has_capability) --------------------
     @property
@@ -171,7 +268,11 @@ class McRpcBridge:
         if coord_name:
             aliases.append(str(coord_name))
         data["_mcrpc_name_aliases"] = aliases
-        return McRpcPolicy(data, entry_id=self.entry.entry_id)
+        return McRpcPolicy(
+            data,
+            entry_id=self.entry.entry_id,
+            identity_id=self._local_identity_id(),
+        )
 
     def _trace(self, stage: str, **fields: Any) -> None:
         """Structured receive-pipeline trace (always at INFO when debug, else DEBUG)."""
@@ -230,6 +331,7 @@ class McRpcBridge:
 
         self._mcrpc = _import_mcrpc()
         self._correlator = self._mcrpc.RequestCorrelator(default_timeout=self.default_timeout)
+        self._mcrpc_started_mono = time.monotonic()
 
         if self.event_bridge_enabled:
             self._unsub = self.hass.bus.async_listen(
@@ -1042,6 +1144,23 @@ class McRpcBridge:
             packet_loss = 100.0
 
         listen = pol.listening_channel_indexes()
+        id_hex = self._local_identity_id()
+        local_peer = {
+            "identity": self._identity_name(),
+            "id": id_hex,
+            "id_prefix": id_hex[:12] if id_hex else None,
+            "id_source": "meshcore_pubkey_or_entry_fallback",
+            "tag": "ha",
+            "profile_legacy": "ha",
+            "caps": [],
+            "features": self._canonicalize_csv(self._feature_tokens()),
+            "protocol": getattr(self._mcrpc, "PROTOCOL_VERSION", None) if self._mcrpc else None,
+            "protocol_min": "1.0",
+            "protocol_max": getattr(self._mcrpc, "PROTOCOL_VERSION", None) if self._mcrpc else None,
+            "sdk": getattr(self._mcrpc, "SDK_VERSION", None) if self._mcrpc else None,
+            "uptime_seconds": self._local_uptime_seconds(),
+            "fw": f"meshcore-ha-{self._integration_version()}",
+        }
         return {
             "enabled": self.enabled,
             "node_requests_enabled": self.enabled,
@@ -1058,6 +1177,7 @@ class McRpcBridge:
             "answer_requests": pol.answer_requests,
             "pending_requests": pending,
             "known_nodes": self.registry.list_dicts(),
+            "local_peer": local_peer,
             "average_rtt_ms": avg_rtt,
             "packet_loss_percent": packet_loss,
             "last_rx": self.stats.get("last_rx"),
@@ -1147,23 +1267,26 @@ class McRpcBridge:
     )
 
     def _build_answer_body(self, req) -> str:
-        """Minimal HA-side answers for inbound mesh requests."""
+        """Minimal HA-side answers for inbound mesh requests (RFC-0001)."""
         assert self._mcrpc is not None
         cmd = (req.command or "").lower()
         rid = req.request_id if getattr(req, "has_request_id", False) else None
-        name = self.policy().local_name or "ha"
+        name = self._identity_name()
+        uptime = self._local_uptime_seconds()
+        fw = f"meshcore-ha-{self._integration_version()}"
 
         if cmd == "ping":
             body = "pong"
         elif cmd == "status":
-            body = f"status name={name} profile=ha"
+            # Identity name — not tag/role. Keep legacy profile= for 1.0 readers.
+            body = f"status name={name} tag=ha profile=ha fw={fw} uptime={uptime}"
         elif cmd in {"discover", "discovery"}:
-            body = (
-                f"discovery name={name} profile=ha protocol=1.0 "
-                f"sdk={getattr(self._mcrpc, 'SDK_VERSION', '1.0.0')}"
-            )
-        elif cmd in {"help", "caps"}:
-            body = "ok ha ping status discovery"
+            body = self._build_discovery_line()
+        elif cmd == "help":
+            body = "ping status discovery help caps"
+        elif cmd == "caps":
+            # No device sensor capabilities on the HA peer
+            body = "ok"
         elif cmd in self._KNOWN_UNAVAILABLE_COMMANDS:
             body = self._mcrpc.build_error("unsupported")
         else:

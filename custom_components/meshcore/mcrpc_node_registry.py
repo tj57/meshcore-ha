@@ -30,8 +30,11 @@ class NodeRecord:
     capabilities: list[str] = field(default_factory=list)
     firmware: str | None = None
     protocol: str | None = None
+    protocol_min: str | None = None
+    protocol_max: str | None = None
     sdk: str | None = None
     board: str | None = None
+    uptime: Any = None
     battery: dict[str, Any] = field(default_factory=dict)
     last_status: dict[str, Any] = field(default_factory=dict)
     last_seen: float | None = None  # monotonic or wall — we store both
@@ -41,6 +44,7 @@ class NodeRecord:
     discovered_at: float | None = None
     discovered_at_iso: str | None = None
     features: dict[str, Any] = field(default_factory=dict)
+    feature_tokens: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
     # Cache timestamps (monotonic) per kind
     cached_at: dict[str, float] = field(default_factory=dict)
@@ -71,8 +75,11 @@ class NodeRecord:
             "capabilities": list(self.capabilities),
             "firmware": self.firmware,
             "protocol": self.protocol,
+            "protocol_min": self.protocol_min,
+            "protocol_max": self.protocol_max,
             "sdk": self.sdk,
             "board": self.board,
+            "uptime": self.uptime,
             "battery": dict(self.battery),
             "last_status": dict(self.last_status),
             "last_seen": self.last_seen_iso,
@@ -80,6 +87,7 @@ class NodeRecord:
             "channel": self.channel,
             "discovered": self.discovered_at_iso,
             "features": dict(self.features),
+            "feature_tokens": list(self.feature_tokens),
             "extra": dict(self.extra),
             "cache": {k: True for k in self.cached_at},
         }
@@ -199,12 +207,26 @@ class NodeRegistry:
                 node.firmware = data.get("firmware")
             if data.get("protocol") is not None:
                 node.protocol = data.get("protocol")
+            if data.get("protocol_min") is not None:
+                node.protocol_min = str(data.get("protocol_min"))
+            if data.get("protocol_max") is not None:
+                node.protocol_max = str(data.get("protocol_max"))
             if data.get("sdk") is not None:
                 node.sdk = data.get("sdk")
             if data.get("board") is not None:
                 node.board = data.get("board")
+            if data.get("uptime") is not None:
+                node.uptime = data.get("uptime")
             if isinstance(data.get("features"), dict):
                 node.features.update(data["features"])
+            tokens = data.get("feature_tokens")
+            if tokens is None and isinstance(data.get("fields"), dict):
+                raw_feat = data["fields"].get("features")
+                if raw_feat:
+                    tokens = [p.strip().lower() for p in str(raw_feat).split(",") if p.strip()]
+            if tokens:
+                merged_ft = sorted({*node.feature_tokens, *[str(t).lower() for t in tokens]})
+                node.feature_tokens = merged_ft
             caps = list(data.get("capabilities") or [])
             for feat, val in node.features.items():
                 if str(val).lower() in {"yes", "1", "true"} and feat not in caps:
@@ -236,8 +258,12 @@ class NodeRegistry:
                 node.display_name = str(data["name"])
             if data.get("profile"):
                 node.profile = data.get("profile")
+            if data.get("tag"):
+                node.tag = data.get("tag")
             if data.get("firmware"):
                 node.firmware = data.get("firmware")
+            if data.get("uptime") is not None:
+                node.uptime = data.get("uptime")
             if data.get("battery") is not None:
                 node.battery["percentage"] = data.get("battery")
             if data.get("voltage") is not None:
@@ -322,8 +348,12 @@ class NodeRegistry:
                 "board": n.board,
                 "firmware": n.firmware,
                 "protocol": n.protocol,
+                "protocol_min": n.protocol_min,
+                "protocol_max": n.protocol_max,
                 "sdk": n.sdk,
+                "uptime": n.uptime,
                 "features": dict(n.features),
+                "feature_tokens": list(n.feature_tokens),
                 "capabilities": list(n.capabilities),
                 "extra": dict(n.extra),
                 "updated": n.last_seen_iso,

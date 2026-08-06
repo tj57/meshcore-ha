@@ -45,9 +45,10 @@ $PYTEST tests/test_hacs_config_entry_upgrade.py \
         tests/test_mcrpc.py \
         tests/test_stress_methodology_docs.py \
         tests/test_mcrpc_rfc0001.py \
+        tests/test_mcrpc_beta2_rfc0001.py \
         -q --strict-markers
 
 MANIFEST=$(jq -r .version custom_components/meshcore/manifest.json)
 echo "== manifest version: $MANIFEST =="
-echo "== Reminder: GitHub Release v${MANIFEST} must be Latest (not draft/prerelease) =="
+echo "== Reminder: GitHub Release for beta must be prerelease; do not replace Latest stable v2.10.1 =="
 echo "release-check PASS"
