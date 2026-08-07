@@ -143,7 +143,7 @@ def _bridge(data: dict | None = None) -> McRpcBridge:
     b._mcrpc = mcrpc
     b._correlator = mcrpc.RequestCorrelator()
     # Unit tests assert send path, not RF stagger timing.
-    b._answer_jitter_seconds = lambda *, broadcast=False: 0.0  # type: ignore[method-assign]
+    b._answer_jitter_seconds = lambda *, broadcast=False, local_tx_settle=False: 0.0  # type: ignore[method-assign]
     hass.data[const.DOMAIN][entry.entry_id] = coord
     b._tasks = tasks
     return b
@@ -480,3 +480,73 @@ def test_answer_jitter_broadcast_vs_addressed():
         target = "all"
 
     assert b._is_broadcast_request(_Req()) is True
+
+
+def test_heltec_call_with_entity_answers_and_fires_bus():
+    """Heltec → HA: ``name#id call proc entity=`` must answer #N ok + meshcore_mcrpc_call.
+
+    Regression: parse_response classified this as Data, so bridge never answered
+    (Chat message_sent path worked; meshcore_message from radio did not).
+    """
+
+    async def _run():
+        b = _bridge({"name": "mcYogi"})
+        sent: list[tuple[int, str]] = []
+        fired: list[tuple[str, dict]] = []
+
+        async def capture(ch, text, timestamp=None):
+            sent.append((ch, text))
+            return MagicMock(type=object())
+
+        b.coordinator.api.mesh_core.commands.send_chan_msg = capture
+        b.hass.bus.async_fire = lambda event_type, event_data=None, **kwargs: fired.append(
+            (event_type, dict(event_data or {}))
+        )
+
+        event = MagicMock()
+        event.data = {
+            "message": "Heltec_v3a: mcYogi#1 call switch.turn_on entity=switch.mcrpc_lab",
+            "sender_name": "Heltec_v3a",
+            "channel_idx": 1,
+            "message_type": "channel",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+        b._on_meshcore_message(event)
+        await _flush(b)
+
+        assert sent, f"no #1 ok; traces={b.stats.get('recent_traces')}"
+        assert any("#1 ok" in t for _, t in sent), sent
+        calls = [d for et, d in fired if et == "meshcore_mcrpc_call"]
+        assert calls, f"no meshcore_mcrpc_call; fired={fired}"
+        assert calls[0]["proc"] == "switch.turn_on"
+        assert calls[0]["args"].get("entity") == "switch.mcrpc_lab"
+
+        sent.clear()
+        fired.clear()
+        for body in (
+            "mcYogi#2 call switch.turn_off entity=switch.mcrpc_lab",
+            "mcYogi#3 call input_number.increment entity=input_number.mcrpc_lab_level",
+        ):
+            event.data = {
+                "message": body,
+                "sender_name": "Heltec_v3a",
+                "channel_idx": 1,
+                "message_type": "channel",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+            }
+            b._on_meshcore_message(event)
+            await _flush(b)
+        assert len(sent) >= 2, sent
+        assert len([d for et, d in fired if et == "meshcore_mcrpc_call"]) >= 2
+
+    asyncio.run(_run())
+
+
+def test_unmatched_data_call_may_be_request():
+    """Bridge helper: Data-shaped call lines are inbound requests when unmatched."""
+    b = _bridge({"name": "mcYogi"})
+    body = "mcYogi#9 call switch.turn_on entity=switch.mcrpc_lab"
+    resp = mcrpc.parse_response(body)
+    assert resp.kind.name == "Data"
+    assert b._unmatched_may_be_request(body, resp) is True
+    assert b._unmatched_may_be_request("#9 ok", mcrpc.parse_response("#9 ok")) is False

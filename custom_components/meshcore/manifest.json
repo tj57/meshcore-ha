@@ -22,7 +22,7 @@
     "cachetools>=5.3.0",
     "paho-mqtt>=1.6.0",
     "pynacl>=1.5.0",
-    "mcrpc @ git+https://github.com/tj57/mcrpc.git@v1.2.3#subdirectory=python"
+    "mcrpc @ git+https://github.com/tj57/mcrpc.git@v1.2.4#subdirectory=python"
   ],
-  "version": "2.12.4"
+  "version": "2.12.5"
 }

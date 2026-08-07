@@ -1340,6 +1340,38 @@ class McRpcBridge:
         target = (getattr(req, "target", None) or "").strip().lower()
         return target == "all"
 
+    def _unmatched_may_be_request(self, body: str, response: Any) -> bool:
+        """True when an unmatched 'response' line is actually an inbound request.
+
+        ``parse_response`` classifies ``name#id call proc entity=…`` as Data because
+        of ``key=value`` args. Those must still be answered (Heltec → HA call path).
+        """
+        kind = getattr(getattr(response, "kind", None), "name", None)
+        if kind == "Unknown":
+            return True
+        if self._mcrpc and hasattr(self._mcrpc, "RequestCorrelator"):
+            looks = getattr(self._mcrpc.RequestCorrelator, "looks_like_request", None)
+            if callable(looks):
+                return bool(looks(body))
+        if not self._mcrpc:
+            return False
+        pr, req = self._mcrpc.parse(body)
+        if pr != self._mcrpc.ParseResult.Ok:
+            return False
+        return (getattr(req, "command", None) or "").lower() in {
+            "ping",
+            "status",
+            "call",
+            "discovery",
+            "discover",
+            "gps",
+            "battery",
+            "help",
+            "caps",
+            "button",
+            "button_state",
+        }
+
     def _answer_jitter_seconds(
         self, *, broadcast: bool, local_tx_settle: bool = False
     ) -> float:
@@ -1757,8 +1789,8 @@ class McRpcBridge:
 
         if kind == "response" and response is not None:
             # Correlated replies to our outbound requests always accepted.
-            # Unmatched Unknown → may be an inbound request instead.
-            if response.kind.name == "Unknown" and pending is None:
+            # Unmatched Unknown/Data may be an inbound request (e.g. call + entity=).
+            if pending is None and self._unmatched_may_be_request(body, response):
                 self._maybe_answer_inbound(
                     body=body,
                     source=source,

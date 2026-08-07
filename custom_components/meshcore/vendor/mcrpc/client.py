@@ -9,8 +9,31 @@ from typing import Any
 
 from .builder import build_request
 from .event import ParsedEvent, parse_event
-from .parser import strip_sender_prefix
-from .response import ParsedResponse, parse_response
+from .parser import ParseResult, parse, strip_sender_prefix
+from .response import ParsedResponse, ResponseKind, parse_response
+
+# Commands that are always inbound *requests* when parse() succeeds.
+# Prevents ``name#id call proc entity=…`` being treated as ResponseKind.Data.
+_REQUEST_COMMANDS = frozenset(
+    {
+        "ping",
+        "status",
+        "call",
+        "discovery",
+        "discover",
+        "gps",
+        "battery",
+        "voltage",
+        "charging",
+        "help",
+        "caps",
+        "button",
+        "button_state",
+        "reboot",
+        "set",
+        "get",
+    }
+)
 
 
 @dataclass
@@ -85,6 +108,14 @@ class RequestCorrelator:
         """True when ``body`` matches a still-pending request line we sent."""
         return any(p.raw_request == body for p in self._pending.values())
 
+    @staticmethod
+    def looks_like_request(body: str) -> bool:
+        """True when ``body`` parses as a known inbound command (not a reply)."""
+        pr, req = parse(body)
+        if pr != ParseResult.Ok:
+            return False
+        return (req.command or "").lower() in _REQUEST_COMMANDS
+
     def classify_inbound(
         self, raw_message: str, *, consume: bool = True
     ) -> tuple[str, ParsedResponse | None, ParsedEvent | None, PendingRequest | None]:
@@ -93,11 +124,19 @@ class RequestCorrelator:
         When the pending request is a broadcast (``meta["broadcast"]``), the pending
         entry is peeked (not consumed) so multiple replies can share one request_id.
         Pass ``consume=False`` to never remove pending.
+
+        Known request lines (``call … entity=``, ``all ping``, …) return ``other``
+        so hosts answer them — they must not be classified as ``ResponseKind.Data``.
         """
         body = strip_sender_prefix(raw_message)
         event = parse_event(body)
         if event is not None:
             return "event", None, event, None
+
+        # Request grammar wins over generic ``<token> key=value`` Data responses.
+        if self.looks_like_request(body):
+            return "other", None, None, None
+
         resp = parse_response(body)
         if resp.request_id is None:
             return "response", resp, None, None
