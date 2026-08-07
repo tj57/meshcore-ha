@@ -224,8 +224,13 @@ Wire text from Chat is typically `Name: all ping`. Logbook strips the sender
 prefix; the body must match what `meshcore.raw` would send (`all ping`).
 
 Enable **Debug logging for node requests** to emit `mcRPC TRACE` stages:
-`rx` → `parser` → `dispatcher` → `response` → `tx` (also in diagnostics
+`rx` → `parser` → `dispatcher` → `response` → `tx_jitter` → `tx` (also in diagnostics
 `recent_traces`).
+
+Broadcast (`all ping` / `all discovery`) auto-replies are **staggered**
+(0.25–1.75 s + per-node slot) so the companion radio can RX peer answers
+instead of TX-colliding with them. Addressed replies stay near-immediate.
+Firmware nodes apply a matching SensorMesh-style flood delay.
 
 Typed examples that must work when policy allows:
 

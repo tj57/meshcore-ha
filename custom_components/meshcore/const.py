@@ -131,6 +131,13 @@ DEFAULT_MCRPC_SENDER_MODE: Final = MCRPC_SENDER_ANY
 DEFAULT_MCRPC_REPLY_IDENTITY: Final = "self"
 DEFAULT_MCRPC_ANSWER_REQUESTS: Final = True
 
+# Reply stagger for multi-node ``all`` answers (half-duplex collision avoidance).
+# Broadcast replies wait longer so the companion radio can RX peer answers;
+# addressed replies keep a tiny optional jitter only.
+MCRPC_ANSWER_JITTER_BROADCAST_MIN_S: Final = 0.25
+MCRPC_ANSWER_JITTER_BROADCAST_MAX_S: Final = 1.75
+MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S: Final = 0.12
+
 # Primary HA-native events (protocol-agnostic names)
 EVENT_NODE_RESPONSE: Final = f"{DOMAIN}_response"
 EVENT_NODE_EVENT: Final = f"{DOMAIN}_event"

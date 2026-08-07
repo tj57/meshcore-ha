@@ -18,18 +18,15 @@ if ! gh auth status >/dev/null 2>&1 && [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]
 fi
 
 NOTES="$(cat <<NOTES
-## MeshCore HA ${TAG} — mcRPC Protocol 1.2
+## MeshCore HA ${TAG} — broadcast reply jitter
 
-### mcRPC 1.2
-- Pin \`mcrpc@v1.2.1\` (wire \`v=1.2\`)
-- Slim discovery: \`id=\` 8-hex, \`v=\`, \`up=\`, \`tag=\` — no protocol*/sdk/features on discover
-- Rich status: \`id_full=\`, \`transport=\`, human \`up=\`
-- Inbound \`call ns.action\` → CallResult (\`ok\` / \`err …\` kv-only); flat procs rejected
-- Vendored Python SDK synced to 1.2
+### Fix
+- Stagger auto-replies to \`all …\` (0.25–1.75 s + per-node slot) so the
+  companion radio can RX peer answers (button) instead of TX-colliding
+- Addressed replies stay near-immediate
 
-### Policy (unchanged)
-- Public channel out of scope for mcRPC QA
-- Default listen/TX = mcCtrl (1)
+### mcRPC 1.2 (unchanged)
+- Pin \`mcrpc@v1.2.1\`, slim discovery / rich status / \`call\`
 
 See docs/RELEASE_PROCESS.md / mcrpc RFC-0002
 NOTES

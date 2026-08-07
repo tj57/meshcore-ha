@@ -142,6 +142,8 @@ def _bridge(data: dict | None = None) -> McRpcBridge:
     b = McRpcBridge(hass, coord, entry)
     b._mcrpc = mcrpc
     b._correlator = mcrpc.RequestCorrelator()
+    # Unit tests assert send path, not RF stagger timing.
+    b._answer_jitter_seconds = lambda *, broadcast=False: 0.0  # type: ignore[method-assign]
     hass.data[const.DOMAIN][entry.entry_id] = coord
     b._tasks = tasks
     return b
@@ -453,3 +455,34 @@ async def test_public_channel_ignored_when_listen_mcctrl_only():
     assert not sent
     assert int(b.stats.get("rx_count") or 0) == before_rx
     assert list(b.stats.get("recent_traces") or []) == before_traces
+
+
+def test_answer_jitter_broadcast_vs_addressed():
+    """Broadcast ``all`` replies stagger; addressed stay near-immediate."""
+    b = _bridge()
+    # Restore real jitter helper (fixture zeros it for async send tests).
+    b._answer_jitter_seconds = McRpcBridge._answer_jitter_seconds.__get__(b, McRpcBridge)
+    samples_b = [b._answer_jitter_seconds(broadcast=True) for _ in range(40)]
+    samples_a = [b._answer_jitter_seconds(broadcast=False) for _ in range(40)]
+    assert min(samples_b) >= const.MCRPC_ANSWER_JITTER_BROADCAST_MIN_S - 1e-9
+    assert max(samples_b) <= const.MCRPC_ANSWER_JITTER_BROADCAST_MAX_S + 1e-9
+    assert max(samples_a) <= const.MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S + 1e-9
+    assert min(samples_b) > max(samples_a)
+
+    class _Kind:
+        name = "All"
+
+    class _Req:
+        address_kind = _Kind()
+        target = "all"
+
+    assert b._is_broadcast_request(_Req()) is True
+
+    class _Named:
+        name = "Named"
+
+    class _Req2:
+        address_kind = _Named()
+        target = "mcYogi"
+
+    assert b._is_broadcast_request(_Req2()) is False

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import random
 import time
 import uuid
 from pathlib import Path
@@ -32,6 +33,9 @@ from .const import (
     EVENT_MCRPC_RESPONSE,
     EVENT_NODE_EVENT,
     EVENT_NODE_RESPONSE,
+    MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S,
+    MCRPC_ANSWER_JITTER_BROADCAST_MAX_S,
+    MCRPC_ANSWER_JITTER_BROADCAST_MIN_S,
 )
 from .logbook import EVENT_MESHCORE_MESSAGE
 from .mcrpc_device_mapper import NodeDeviceMapper
@@ -1333,7 +1337,38 @@ class McRpcBridge:
             body = self._mcrpc.build_error("unknown_command")
         return self._mcrpc.prefix_request_id(body, rid)
 
-    async def _async_send_answer(self, channel_idx: int, text: str) -> None:
+    def _is_broadcast_request(self, req: Any) -> bool:
+        """True when the inbound request was addressed to ``all`` (multi-responder)."""
+        kind = getattr(getattr(req, "address_kind", None), "name", None)
+        if kind == "All":
+            return True
+        target = (getattr(req, "target", None) or "").strip().lower()
+        return target == "all"
+
+    def _answer_jitter_seconds(self, *, broadcast: bool) -> float:
+        """Stagger auto-replies so peer answers are not lost while we TX.
+
+        Broadcast (``all``) uses a deterministic per-node slot plus random
+        spread — same pattern as MeshCore multi-responder / SensorMesh.
+        Addressed replies stay nearly immediate.
+        """
+        if not broadcast:
+            hi = float(MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S)
+            return random.uniform(0.0, hi) if hi > 0 else 0.0
+
+        lo = float(MCRPC_ANSWER_JITTER_BROADCAST_MIN_S)
+        hi = float(MCRPC_ANSWER_JITTER_BROADCAST_MAX_S)
+        if hi < lo:
+            hi = lo
+        # Stable slot from identity → nodes don't all land on the same draw
+        seed = (self._local_identity_id() or self._identity_name() or "ha").encode()
+        slot_idx = int(hashlib.md5(seed).hexdigest()[:8], 16) % 8
+        slot = slot_idx * ((hi - lo) / 8.0)
+        return min(hi, lo + slot + random.uniform(0.0, (hi - lo) / 8.0))
+
+    async def _async_send_answer(
+        self, channel_idx: int, text: str, *, broadcast: bool = False
+    ) -> None:
         """Send a reply using the configured reply identity (multi-radio ready)."""
         pol = self.policy()
         domain_data = self.hass.data.get(DOMAIN, {})
@@ -1343,6 +1378,18 @@ class McRpcBridge:
         if not api or not getattr(api, "connected", False):
             self._note_error("reply_identity_offline")
             return
+
+        delay = self._answer_jitter_seconds(broadcast=broadcast)
+        if delay > 0:
+            self._trace(
+                "tx_jitter",
+                channel_idx=channel_idx,
+                delay_sec=round(delay, 3),
+                broadcast=broadcast,
+                transmitted_payload=text,
+            )
+            await asyncio.sleep(delay)
+
         fallback_timestamp = int(time.time())
         result = await api.mesh_core.commands.send_chan_msg(
             int(channel_idx), text, timestamp=fallback_timestamp
@@ -1369,6 +1416,8 @@ class McRpcBridge:
             "channel": channel_idx,
             "reply": True,
             "reply_entry_id": reply_entry_id,
+            "jitter_sec": round(delay, 3),
+            "broadcast": broadcast,
         }
         self._trace(
             "tx",
@@ -1376,6 +1425,8 @@ class McRpcBridge:
             transmitted_payload=text,
             reply=True,
             reply_entry_id=reply_entry_id,
+            jitter_sec=round(delay, 3),
+            broadcast=broadcast,
         )
 
         send_timestamp = fallback_timestamp
@@ -1551,7 +1602,13 @@ class McRpcBridge:
             channel_idx=channel_idx,
             selected_handler=req.command,
         )
-        self.hass.async_create_task(self._async_send_answer(int(channel_idx), reply))
+        self.hass.async_create_task(
+            self._async_send_answer(
+                int(channel_idx),
+                reply,
+                broadcast=self._is_broadcast_request(req),
+            )
+        )
 
     @callback
     def _on_message_sent(self, event: Event) -> None:
