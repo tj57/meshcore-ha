@@ -40,7 +40,7 @@ def test_public_out_of_scope_for_qa():
 
 
 def test_production_names_and_entry_title():
-    assert "mcYogi" in RULES
-    assert "mcCtrl" in RULES
+    assert "ha-peer" in RULES
+    assert "lab-channel" in RULES
     assert "never generates" in RULES.lower() or "Never generates" in RULES
     assert "Co-authored-by: Cursor" in RULES

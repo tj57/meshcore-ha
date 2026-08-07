@@ -105,7 +105,7 @@ def _entry(data: dict):
 
 def _bridge(data: dict | None = None) -> McRpcBridge:
     cfg = {
-        "name": "mcCtrl",
+        "name": "ha-peer",
         const.CONF_MCRPC_ENABLED: True,
         const.CONF_MCRPC_LISTEN_MODE: const.MCRPC_LISTEN_ALL,
         const.CONF_MCRPC_ACCEPT_BROADCAST: True,
@@ -131,7 +131,7 @@ def _bridge(data: dict | None = None) -> McRpcBridge:
     hass.async_create_task = _create_task
     hass._mcrpc_tasks = tasks
     coord = MagicMock()
-    coord.name = "mcCtrl"
+    coord.name = "ha-peer"
     coord.api = MagicMock()
     coord.api.connected = True
     ok = MagicMock()
@@ -195,7 +195,7 @@ async def test_chat_mcctrl_ping_addressed_to_local_name():
 
     event = MagicMock()
     event.data = {
-        "message": "mcCtrl ping",
+        "message": "ha-peer ping",
         "sender_name": "Phone",
         "channel_idx": 1,
         "message_type": "channel",
@@ -317,7 +317,7 @@ async def test_dedup_message_sent_and_meshcore_message():
         MagicMock(
             data={
                 "message": "all ping",
-                "sender_name": "mcCtrl",
+                "sender_name": "ha-peer",
                 "channel_idx": 1,
                 "outgoing": True,
                 "send_id": sid,
@@ -375,7 +375,7 @@ def test_chat_vs_raw_body_identical_after_strip():
 
 @pytest.mark.asyncio
 async def test_unknown_command_answers_unknown_command_not_unsupported():
-    """SPEC §18: no HA handler → err unknown_command (Chat E2E on mcCtrl)."""
+    """SPEC §18: no HA handler → err unknown_command (Chat E2E on ha-peer)."""
     b = _bridge()
     sent = []
 
@@ -386,7 +386,7 @@ async def test_unknown_command_answers_unknown_command_not_unsupported():
     b.coordinator.api.mesh_core.commands.send_chan_msg = capture
     event = MagicMock()
     event.data = {
-        "message": "mcCtrl nosuch",
+        "message": "ha-peer nosuch",
         "sender_name": "Phone",
         "channel_idx": 1,  # private / Config Entry path (never Public)
         "message_type": "channel",
@@ -412,7 +412,7 @@ async def test_known_unavailable_commands_return_unsupported(cmd: str):
     b.coordinator.api.mesh_core.commands.send_chan_msg = capture
     event = MagicMock()
     event.data = {
-        "message": f"mcCtrl {cmd}",
+        "message": f"ha-peer {cmd}",
         "sender_name": "Phone",
         "channel_idx": 1,
         "message_type": "channel",

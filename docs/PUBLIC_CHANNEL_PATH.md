@@ -34,4 +34,4 @@ When `channel_idx` is not in `listen_channels`, the bridge returns immediately:
 ## Do
 
 - Run all mcRPC protocol tests on the private channel / Config Entry path
-- Keep production node/channel **mcYogi** unchanged
+- Keep production node/channel **ha-peer** unchanged

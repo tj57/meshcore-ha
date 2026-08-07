@@ -18,15 +18,10 @@ if ! gh auth status >/dev/null 2>&1 && [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]
 fi
 
 NOTES="$(cat <<NOTES
-## MeshCore HA ${TAG} — RFC-0002 §8 reply stagger
+## MeshCore HA ${TAG}
 
-### Fix
-- Auto-replies to \`all\` use library \`mcrpc.reply_delay_seconds\` (250–1750 ms)
-- Pin \`mcrpc@v1.2.2\`
-- HA chat can RX peer answers (button) instead of TX-colliding
-
-### QA
-See https://github.com/tj57/mcrpc/blob/v1.2.2/docs/QA_HA_REPLY_STAGGER.md
+- Pin \`mcrpc@v1.2.2\` (RFC-0002 slim discovery / call / reply stagger)
+- Public docs sanitized (no lab-specific device names)
 NOTES
 )"
 

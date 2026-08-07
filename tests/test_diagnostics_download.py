@@ -54,11 +54,11 @@ async def test_diagnostics_without_coordinator_still_has_node_requests():
     diag = _load_diagnostics()
 
     class Entry:
-        title = "mcCtrl"
+        title = "lab-channel"
         entry_id = "abc"
         data = {
             "connection_type": "ble",
-            "name": "mcCtrl",
+            "name": "lab-channel",
             "mcrpc_enabled": True,
             "mcrpc_channel": 1,
         }
@@ -114,12 +114,12 @@ async def test_diagnostics_from_bridge_dict_keys():
     coordinator.api = MagicMock(connected=True)
     entry = MagicMock()
     entry.entry_id = "e1"
-    entry.title = "mcCtrl"
+    entry.title = "lab-channel"
     entry.data = {
         "mcrpc_enabled": True,
         "mcrpc_channel": 1,
         "connection_type": "ble",
-        "name": "mcCtrl",
+        "name": "lab-channel",
     }
 
     bridge = mb.McRpcBridge(hass, coordinator, entry)

@@ -27,8 +27,8 @@ Developer must **NEVER** rename during development or automated tests:
 
 | Production field | Value |
 |------------------|-------|
-| Node name | **mcYogi** |
-| Private channel | **mcYogi** |
+| Node name | **ha-peer** |
+| Private channel | **ha-peer** |
 
 Development tests must never leave production modified.
 
@@ -40,13 +40,13 @@ backup → test → restore automatically
 
 ### Config Entry title vs device name
 
-Do **not** rename the existing Config Entry. Keep the cosmetic title **`mcCtrl`**
+Do **not** rename the existing Config Entry. Keep the cosmetic title **`lab-channel`**
 for backward compatibility.
 
 | Concept | Example | Notes |
 |---------|---------|--------|
-| Device / node name on air | `mcYogi` | Production identity |
-| Config Entry title in HA | `mcCtrl` | Cosmetic; may differ — no migration |
+| Device / node name on air | `ha-peer` | Production identity |
+| Config Entry title in HA | `lab-channel` | Cosmetic; may differ — no migration |
 
 Document only; no schema change required.
 
@@ -63,7 +63,7 @@ Document only; no schema change required.
 - QA must not transmit protocol commands on Public.
 - Public Chat behaviour belongs to **MeshCore Chat**, not mcRPC.
 - All mcRPC protocol testing uses the private channel / Config Entry setup
-  (entry title may be `mcCtrl`; production node/channel names stay `mcYogi`).
+  (entry title may be `lab-channel`; production node/channel names stay `ha-peer`).
 
 See [QA_CHANNEL_POLICY.md](QA_CHANNEL_POLICY.md).
 

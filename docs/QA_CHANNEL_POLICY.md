@@ -4,7 +4,7 @@
 
 | Channel | mcRPC / QA |
 |---------|------------|
-| **Private / mcCtrl Config Entry path** | All protocol tests |
+| **Private / lab-channel Config Entry path** | All protocol tests |
 | **Public** (channel index 0) | **Out of scope** — do not use |
 
 Public is completely out of scope for mcRPC.
@@ -20,15 +20,15 @@ misleading Chat history and are removed from the release process.
 
 | Field | Production value | Notes |
 |-------|------------------|-------|
-| Node / channel name | **mcYogi** | Never rename in tests |
-| Config Entry title | **mcCtrl** | Cosmetic; keep for compatibility |
+| Node / channel name | **ha-peer** | Never rename in tests |
+| Config Entry title | **lab-channel** | Cosmetic; keep for compatibility |
 
 Do not rename the Config Entry. Device name and entry title may differ.
 
 ## What to test on
 
 - Chat / `meshcore.request` / stress / diagnostics on the private channel
-  associated with the Config Entry (title may read `mcCtrl`).
+  associated with the Config Entry (title may read `lab-channel`).
 - Never change production PSKs or node names; use backup/restore if a disposable
   lab config is required.
 

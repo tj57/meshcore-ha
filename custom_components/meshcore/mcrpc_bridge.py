@@ -1611,7 +1611,7 @@ class McRpcBridge:
         if not self._correlator or not self._mcrpc:
             return
         channel_idx = int(data.get("channel_idx", self.default_channel))
-        # Non-listening channels (e.g. Public when listen=[mcCtrl]): total silence.
+        # Non-listening channels (e.g. Public when listen=[lab-channel]): total silence.
         if not self.policy().channel_allowed(channel_idx):
             return
         raw = (data.get("message") or "").strip()

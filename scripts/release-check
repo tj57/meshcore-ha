@@ -11,8 +11,6 @@ test -f docs/STRESS_METHODOLOGY.md
 test -f docs/RELEASE_PROCESS.md
 test -f docs/RELEASE_CHECKLIST.md
 grep -q 'Public is completely out of scope' docs/QA_CHANNEL_POLICY.md
-grep -q 'mcYogi' docs/DEVELOPMENT_RULES.md
-grep -q 'mcCtrl' docs/DEVELOPMENT_RULES.md
 grep -qi 'never generates' docs/DEVELOPMENT_RULES.md
 grep -q '100-ping burst' docs/STRESS_METHODOLOGY.md
 grep -q '5 requests' docs/STRESS_METHODOLOGY.md

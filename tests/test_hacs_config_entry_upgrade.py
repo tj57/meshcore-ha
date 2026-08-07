@@ -61,7 +61,7 @@ def ha_config_entry_version_error(entry_version: int, flow_version: int) -> str 
     """Return the HA error string when entry.version > ConfigFlow.VERSION."""
     if entry_version > flow_version:
         return (
-            f'Config entry "mcCtrl" for meshcore has version {entry_version} '
+            f'Config entry "lab-channel" for meshcore has version {entry_version} '
             f"which is higher than the current version {flow_version}."
         )
     return None
@@ -104,7 +104,7 @@ class HassInstall:
         """New install: entry.version starts at the installed ConfigFlow.VERSION."""
         self.entry = ConfigEntryState(
             version=self.build.flow_version,
-            data=dict(data or {"name": "mcCtrl"}),
+            data=dict(data or {"name": "lab-channel"}),
         )
         self.restart()
 
@@ -255,7 +255,7 @@ async def test_clean_install_upgrade_restart_never_emits_version_error():
     assert v4.flow_version >= 4
 
     hass = HassInstall(build=v3)
-    hass.create_entry({"name": "mcCtrl"})
+    hass.create_entry({"name": "lab-channel"})
     assert hass.last_error is None
     assert hass.entry is not None
     assert hass.entry.version == 3
@@ -279,7 +279,7 @@ async def test_existing_v4_entry_survives_hacs_upgrade_to_current():
     """Existing installation already on schema 4 must load after HACS update."""
     hass = HassInstall(
         build=InstalledBuild("previous-mcrpc", flow_version=4, manifest_version="2.9.0+mcrpc"),
-        entry=ConfigEntryState(version=4, data={"name": "mcCtrl"}),
+        entry=ConfigEntryState(version=4, data={"name": "lab-channel"}),
     )
     hass.restart()
     assert hass.last_error is None
@@ -296,7 +296,7 @@ async def test_downgrade_attempt_to_version_3_is_the_known_blocker():
     """Document the exact failure: HACS installing VERSION=3 over a v4 entry."""
     hass = HassInstall(
         build=current_build(),
-        entry=ConfigEntryState(version=4, data={"name": "mcCtrl"}),
+        entry=ConfigEntryState(version=4, data={"name": "lab-channel"}),
     )
     hass.restart()
     assert hass.last_error is None
@@ -313,7 +313,7 @@ async def test_fixed_default_branch_build_heals_without_deleting_entry():
     """After the installable tip ships VERSION>=4, the same entry loads again."""
     hass = HassInstall(
         build=InstalledBuild("broken-v3", flow_version=3, manifest_version="2.9.0"),
-        entry=ConfigEntryState(version=4, data={"name": "mcCtrl", "mcrpc_enabled": True}),
+        entry=ConfigEntryState(version=4, data={"name": "lab-channel", "mcrpc_enabled": True}),
     )
     hass.restart()
     assert hass.last_error is not None
@@ -323,7 +323,7 @@ async def test_fixed_default_branch_build_heals_without_deleting_entry():
     assert hass.entry is not None
     assert hass.entry.version == 4
     # Entry data preserved — no delete/recreate.
-    assert hass.entry.data["name"] == "mcCtrl"
+    assert hass.entry.data["name"] == "lab-channel"
 
 
 @pytest.mark.asyncio

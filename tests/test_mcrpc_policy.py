@@ -51,7 +51,7 @@ def test_secure_defaults_for_new_install():
     data = const.migrate_mcrpc_config({"name": "HomeHA", "mcrpc_enabled": False})
     assert data[const.CONF_MCRPC_LISTEN_MODE] == const.MCRPC_LISTEN_SELECTED
     assert data[const.CONF_MCRPC_LISTEN_CHANNELS] == [const.DEFAULT_MCRPC_CHANNEL]
-    assert const.DEFAULT_MCRPC_CHANNEL == 1  # mcCtrl, never Public
+    assert const.DEFAULT_MCRPC_CHANNEL == 1  # lab-channel, never Public
     assert data[const.CONF_MCRPC_ACCEPT_BARE] is False
     assert data[const.CONF_MCRPC_ACCEPT_BROADCAST] is True
     assert data[const.CONF_MCRPC_ACCEPT_ADDRESSED] is True
@@ -231,4 +231,4 @@ def test_channel_label_helper():
         return f"Channel {idx} ({n})"
 
     assert label(0, None) == "Channel 0 (Public)"
-    assert label(1, "mcCtrl") == "Channel 1 (mcCtrl)"
+    assert label(1, "lab-channel") == "Channel 1 (lab-channel)"

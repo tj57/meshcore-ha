@@ -36,8 +36,8 @@ Configure listening channels, addressing, allowed senders, and reply identity th
 Secure defaults: bare commands off. **Public is out of scope for mcRPC** (MeshCore
 Chat only) — do not QA protocol commands on Public.
 
-Config Entry title may remain **`mcCtrl`** while the production device/channel
-name is **`mcYogi`** — they may differ; do not rename production identities.
+Config Entry title may remain **`lab-channel`** while the production device/channel
+name is **`ha-peer`** — they may differ; do not rename production identities.
 
 - Guide: [MCRPC.md](docs/MCRPC.md)
 - Development rules: [DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md)

@@ -6,10 +6,10 @@ Mandatory before tag, GitHub Release, or HACS publication.
 
 - [ ] `./scripts/release-check` PASS
 - [ ] Author `tj57` only (no Cursor co-author)
-- [ ] Production HA config untouched (`mcYogi` node/channel unchanged)
+- [ ] Production HA config untouched (`ha-peer` node/channel unchanged)
 - [ ] Public out of scope for mcRPC QA (no Public protocol TX)
 - [ ] Stress uses [STRESS_METHODOLOGY.md](STRESS_METHODOLOGY.md) (no 100-burst gate)
-- [ ] Config Entry title remains **mcCtrl** (cosmetic; may differ from device **mcYogi**)
+- [ ] Config Entry title remains **lab-channel** (cosmetic; may differ from device **ha-peer**)
 
 ## Version consistency
 

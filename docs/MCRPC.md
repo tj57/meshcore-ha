@@ -53,7 +53,7 @@ and **reply identity** (which local radio sends the reply — multi-radio ready)
 │ ☑ Enable Mesh Node Requests                              │
 │ ☑ Answer inbound requests                                │
 │ Listening channels:  [ Selected channels          ▾ ]    │
-│ Selected channels:   ☑ Channel 1 (mcCtrl)                │
+│ Selected channels:   ☑ Channel 1 (lab-channel)                │
 │                      ☐ Channel 0 (Public)                │
 │ Default TX / current channel index:  1                   │
 │ ☑ Accept broadcast (all …)                               │
@@ -113,7 +113,7 @@ For **new** installs (or never-enabled mcRPC):
 transmit protocol commands on Public. Public Chat belongs to MeshCore Chat.
 
 All protocol / stress tests use the private channel / Config Entry path
-(entry title may be **`mcCtrl`**; production node/channel names stay **`mcYogi`**
+(entry title may be **`lab-channel`**; production node/channel names stay **`ha-peer`**
 — do not rename either). Full policy: [QA_CHANNEL_POLICY.md](QA_CHANNEL_POLICY.md).
 
 Stress uses the paced methodology in [STRESS_METHODOLOGY.md](STRESS_METHODOLOGY.md)
@@ -174,7 +174,7 @@ Includes:
 | Field | Description |
 |-------|-------------|
 | Enabled | Feature on/off |
-| Current channel | Default TX channel index (mcCtrl in QA) |
+| Current channel | Default TX channel index (lab-channel in QA) |
 | Listening channels | Indexes or `all` |
 | Accepted addressing | broadcast / addressed / bare |
 | Allowed senders mode | any / contacts / allowlist |
@@ -234,7 +234,7 @@ Firmware nodes apply a matching SensorMesh-style flood delay.
 
 Typed examples that must work when policy allows:
 
-- `mcCtrl ping` / `mcCtrl status` — when HA local name (or alias) is `mcCtrl`
+- `lab-channel ping` / `lab-channel status` — when HA local name (or alias) is `lab-channel`
 - `all ping` / `all discovery` — broadcast
 - bare `ping` — only if **Accept bare commands** is enabled
 

@@ -120,7 +120,7 @@ MCRPC_SENDER_MODES: Final = (
 )
 
 DEFAULT_MCRPC_TIMEOUT: Final = 15
-# Default TX / "current" channel: mcCtrl (1). Public (0) is never a positive-test default.
+# Default TX / "current" channel: lab-channel (1). Public (0) is never a positive-test default.
 DEFAULT_MCRPC_CHANNEL: Final = 1
 # Secure defaults for new installs (no answer on public / bare)
 DEFAULT_MCRPC_LISTEN_MODE: Final = MCRPC_LISTEN_SELECTED
@@ -160,7 +160,7 @@ def migrate_mcrpc_config(data: dict) -> dict:
             out[CONF_MCRPC_REPLY_IDENTITY] = DEFAULT_MCRPC_REPLY_IDENTITY
             out[CONF_MCRPC_ANSWER_REQUESTS] = True
         else:
-            # Secure defaults — listen on mcCtrl only until user opts into more
+            # Secure defaults — listen on lab-channel only until user opts into more
             out[CONF_MCRPC_LISTEN_MODE] = DEFAULT_MCRPC_LISTEN_MODE
             out[CONF_MCRPC_LISTEN_CHANNELS] = [DEFAULT_MCRPC_CHANNEL]
             out[CONF_MCRPC_ACCEPT_BROADCAST] = DEFAULT_MCRPC_ACCEPT_BROADCAST
