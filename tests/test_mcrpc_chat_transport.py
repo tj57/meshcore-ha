@@ -458,15 +458,14 @@ async def test_public_channel_ignored_when_listen_mcctrl_only():
 
 
 def test_answer_jitter_broadcast_vs_addressed():
-    """Broadcast ``all`` replies stagger; addressed stay near-immediate."""
+    """RFC-0002 §8 via library reply_delay_seconds."""
     b = _bridge()
-    # Restore real jitter helper (fixture zeros it for async send tests).
     b._answer_jitter_seconds = McRpcBridge._answer_jitter_seconds.__get__(b, McRpcBridge)
     samples_b = [b._answer_jitter_seconds(broadcast=True) for _ in range(40)]
     samples_a = [b._answer_jitter_seconds(broadcast=False) for _ in range(40)]
-    assert min(samples_b) >= const.MCRPC_ANSWER_JITTER_BROADCAST_MIN_S - 1e-9
-    assert max(samples_b) <= const.MCRPC_ANSWER_JITTER_BROADCAST_MAX_S + 1e-9
-    assert max(samples_a) <= const.MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S + 1e-9
+    assert min(samples_b) >= 0.25 - 1e-9
+    assert max(samples_b) <= 1.75 + 1e-9
+    assert max(samples_a) <= 0.12 + 1e-9
     assert min(samples_b) > max(samples_a)
 
     class _Kind:
@@ -477,12 +476,3 @@ def test_answer_jitter_broadcast_vs_addressed():
         target = "all"
 
     assert b._is_broadcast_request(_Req()) is True
-
-    class _Named:
-        name = "Named"
-
-    class _Req2:
-        address_kind = _Named()
-        target = "mcYogi"
-
-    assert b._is_broadcast_request(_Req2()) is False

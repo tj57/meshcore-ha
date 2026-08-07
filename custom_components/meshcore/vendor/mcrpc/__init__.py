@@ -18,6 +18,15 @@ from .request import AddressKind, ParseResult, Request
 from .response import ParsedResponse, ResponseKind, parse_caps_blob, parse_response
 from .status import ParsedStatus, StatusBuilder, parse_status
 from .uptime import format_uptime, short_id8
+from .reply_jitter import (
+    ADDRESSED_MAX_MS,
+    BROADCAST_MAX_MS,
+    BROADCAST_MIN_MS,
+    delay_ms as reply_delay_ms,
+    delay_seconds as reply_delay_seconds,
+    identity_hash,
+    needs_broadcast_stagger,
+)
 from .version import (
     LIBRARY_VERSION,
     PROTOCOL_VERSION,
@@ -280,4 +289,11 @@ __all__ = [
     "parse_call_result",
     "format_uptime",
     "short_id8",
+    "reply_delay_ms",
+    "reply_delay_seconds",
+    "needs_broadcast_stagger",
+    "identity_hash",
+    "BROADCAST_MIN_MS",
+    "BROADCAST_MAX_MS",
+    "ADDRESSED_MAX_MS",
 ]

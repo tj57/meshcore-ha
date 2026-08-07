@@ -7,9 +7,7 @@ Wire protocol details stay inside the standalone ``mcrpc`` package.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
-import random
 import time
 import uuid
 from pathlib import Path
@@ -33,9 +31,6 @@ from .const import (
     EVENT_MCRPC_RESPONSE,
     EVENT_NODE_EVENT,
     EVENT_NODE_RESPONSE,
-    MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S,
-    MCRPC_ANSWER_JITTER_BROADCAST_MAX_S,
-    MCRPC_ANSWER_JITTER_BROADCAST_MIN_S,
 )
 from .logbook import EVENT_MESHCORE_MESSAGE
 from .mcrpc_device_mapper import NodeDeviceMapper
@@ -1346,25 +1341,18 @@ class McRpcBridge:
         return target == "all"
 
     def _answer_jitter_seconds(self, *, broadcast: bool) -> float:
-        """Stagger auto-replies so peer answers are not lost while we TX.
+        """RFC-0002 §8 — use library ReplyJitter (Python mirror)."""
+        identity = self._local_identity_id() or self._identity_name() or "ha"
+        if self._mcrpc and hasattr(self._mcrpc, "reply_delay_seconds"):
+            return float(
+                self._mcrpc.reply_delay_seconds(broadcast=broadcast, identity=identity)
+            )
+        # Vendored / older SDK fallback (same constants as ReplyJitter.h)
+        import random
 
-        Broadcast (``all``) uses a deterministic per-node slot plus random
-        spread — same pattern as MeshCore multi-responder / SensorMesh.
-        Addressed replies stay nearly immediate.
-        """
         if not broadcast:
-            hi = float(MCRPC_ANSWER_JITTER_ADDRESSED_MAX_S)
-            return random.uniform(0.0, hi) if hi > 0 else 0.0
-
-        lo = float(MCRPC_ANSWER_JITTER_BROADCAST_MIN_S)
-        hi = float(MCRPC_ANSWER_JITTER_BROADCAST_MAX_S)
-        if hi < lo:
-            hi = lo
-        # Stable slot from identity → nodes don't all land on the same draw
-        seed = (self._local_identity_id() or self._identity_name() or "ha").encode()
-        slot_idx = int(hashlib.md5(seed).hexdigest()[:8], 16) % 8
-        slot = slot_idx * ((hi - lo) / 8.0)
-        return min(hi, lo + slot + random.uniform(0.0, (hi - lo) / 8.0))
+            return random.uniform(0.0, 0.12)
+        return random.uniform(0.25, 1.75)
 
     async def _async_send_answer(
         self, channel_idx: int, text: str, *, broadcast: bool = False

@@ -18,17 +18,15 @@ if ! gh auth status >/dev/null 2>&1 && [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]
 fi
 
 NOTES="$(cat <<NOTES
-## MeshCore HA ${TAG} — broadcast reply jitter
+## MeshCore HA ${TAG} — RFC-0002 §8 reply stagger
 
 ### Fix
-- Stagger auto-replies to \`all …\` (0.25–1.75 s + per-node slot) so the
-  companion radio can RX peer answers (button) instead of TX-colliding
-- Addressed replies stay near-immediate
+- Auto-replies to \`all\` use library \`mcrpc.reply_delay_seconds\` (250–1750 ms)
+- Pin \`mcrpc@v1.2.2\`
+- HA chat can RX peer answers (button) instead of TX-colliding
 
-### mcRPC 1.2 (unchanged)
-- Pin \`mcrpc@v1.2.1\`, slim discovery / rich status / \`call\`
-
-See docs/RELEASE_PROCESS.md / mcrpc RFC-0002
+### QA
+See https://github.com/tj57/mcrpc/blob/v1.2.2/docs/QA_HA_REPLY_STAGGER.md
 NOTES
 )"
 
