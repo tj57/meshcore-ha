@@ -1340,22 +1340,37 @@ class McRpcBridge:
         target = (getattr(req, "target", None) or "").strip().lower()
         return target == "all"
 
-    def _answer_jitter_seconds(self, *, broadcast: bool) -> float:
-        """RFC-0002 §8 — use library ReplyJitter (Python mirror)."""
+    def _answer_jitter_seconds(
+        self, *, broadcast: bool, local_tx_settle: bool = False
+    ) -> float:
+        """RFC-0002 §8 — library ReplyJitter + companion listen bias (HA)."""
         identity = self._local_identity_id() or self._identity_name() or "ha"
         if self._mcrpc and hasattr(self._mcrpc, "reply_delay_seconds"):
             return float(
-                self._mcrpc.reply_delay_seconds(broadcast=broadcast, identity=identity)
+                self._mcrpc.reply_delay_seconds(
+                    broadcast=broadcast,
+                    identity=identity,
+                    companion_bias=bool(broadcast),
+                    local_tx_settle=bool(broadcast and local_tx_settle),
+                )
             )
         # Vendored / older SDK fallback (same constants as ReplyJitter.h)
         import random
 
         if not broadcast:
             return random.uniform(0.0, 0.12)
-        return random.uniform(0.25, 1.75)
+        delay = random.uniform(0.4, 3.6) + 1.2
+        if local_tx_settle:
+            delay += 0.4
+        return delay
 
     async def _async_send_answer(
-        self, channel_idx: int, text: str, *, broadcast: bool = False
+        self,
+        channel_idx: int,
+        text: str,
+        *,
+        broadcast: bool = False,
+        local_tx_settle: bool = False,
     ) -> None:
         """Send a reply using the configured reply identity (multi-radio ready)."""
         pol = self.policy()
@@ -1367,7 +1382,9 @@ class McRpcBridge:
             self._note_error("reply_identity_offline")
             return
 
-        delay = self._answer_jitter_seconds(broadcast=broadcast)
+        delay = self._answer_jitter_seconds(
+            broadcast=broadcast, local_tx_settle=local_tx_settle
+        )
         if delay > 0:
             self._trace(
                 "tx_jitter",
@@ -1595,6 +1612,7 @@ class McRpcBridge:
                 int(channel_idx),
                 reply,
                 broadcast=self._is_broadcast_request(req),
+                local_tx_settle=bool(outgoing),
             )
         )
 

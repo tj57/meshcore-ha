@@ -458,15 +458,19 @@ async def test_public_channel_ignored_when_listen_mcctrl_only():
 
 
 def test_answer_jitter_broadcast_vs_addressed():
-    """RFC-0002 §8 via library reply_delay_seconds."""
+    """RFC-0002 §8 via library reply_delay_seconds (+ HA companion bias)."""
     b = _bridge()
     b._answer_jitter_seconds = McRpcBridge._answer_jitter_seconds.__get__(b, McRpcBridge)
     samples_b = [b._answer_jitter_seconds(broadcast=True) for _ in range(40)]
     samples_a = [b._answer_jitter_seconds(broadcast=False) for _ in range(40)]
-    assert min(samples_b) >= 0.25 - 1e-9
-    assert max(samples_b) <= 1.75 + 1e-9
+    # Library window 0.4–3.6 s + companion bias 1.2 s
+    assert min(samples_b) >= 1.6 - 1e-9
+    assert max(samples_b) <= 4.8 + 1e-9
     assert max(samples_a) <= 0.12 + 1e-9
     assert min(samples_b) > max(samples_a)
+    settled = [b._answer_jitter_seconds(broadcast=True, local_tx_settle=True) for _ in range(20)]
+    assert min(settled) >= 2.0 - 1e-9
+    assert max(settled) <= 5.2 + 1e-9
 
     class _Kind:
         name = "All"

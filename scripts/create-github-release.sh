@@ -20,8 +20,8 @@ fi
 NOTES="$(cat <<NOTES
 ## MeshCore HA ${TAG}
 
-- Pin \`mcrpc@v1.2.2\` (RFC-0002 slim discovery / call / reply stagger)
-- Public docs sanitized (no lab-specific device names)
+- Pin \`mcrpc@v1.2.3\` — wider reply stagger (16 slots, 400–3600 ms) + companion listen bias
+- HA answers \`all\` later so peer pongs can be RX before local TX
 NOTES
 )"
 
