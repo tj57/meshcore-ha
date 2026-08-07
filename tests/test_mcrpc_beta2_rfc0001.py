@@ -1,4 +1,4 @@
-"""RFC-0001 beta.2: addressing matrix, discovery 1.1, no role aliases."""
+"""RFC-0001 addressing + RFC-0002 Protocol 1.2 discovery/status/call."""
 
 from __future__ import annotations
 
@@ -208,22 +208,19 @@ def test_tag_is_not_rf_address_in_registry():
 # ---- Discovery matrix --------------------------------------------------------
 
 
-def test_discovery_11_fields():
+def test_discovery_12_fields():
     line = (
-        "node1 id=3CBBF74EAABBCCDDEEFF001122334455 fw=x board=dev "
-        "protocol=1.1 protocol_min=1.0 protocol_max=1.1 sdk=1.1.0 "
-        "caps=battery,display,gps features=caps-in-discovery,id-addr,request-id "
-        "tag=ha uptime=42"
+        "node1 id=3cbbf74e fw=x v=1.2 tag=ha up=42s "
+        "caps=battery,display,gps"
     )
     shaped = mcrpc.parse_discover_fields(line)
-    assert shaped["identity_id"] == "3CBBF74EAABBCCDDEEFF001122334455"
+    assert shaped["identity_id"] == "3cbbf74e"
     assert shaped["tag"] == "ha"
-    assert shaped["protocol"] == "1.1"
-    assert shaped["protocol_min"] == "1.0"
-    assert shaped["protocol_max"] == "1.1"
-    assert shaped["uptime"] == 42
+    assert shaped["protocol"] == "1.2"
+    assert shaped["v"] == "1.2"
+    assert shaped["uptime"] == "42s"
     assert shaped["capabilities"] == ["battery", "display", "gps"]
-    assert shaped["feature_tokens"] == ["caps-in-discovery", "id-addr", "request-id"]
+    assert shaped["feature_tokens"] == []
 
 
 def test_legacy_10_profile_only():
@@ -237,12 +234,12 @@ def test_legacy_10_profile_only():
 
 
 def test_tag_only_and_profile_only_and_both():
-    t = mcrpc.parse_discover_fields("n1 tag=sensor protocol=1.1 sdk=1.1.0")
+    t = mcrpc.parse_discover_fields("n1 tag=sensor v=1.2")
     assert t["tag"] == "sensor"
     p = mcrpc.parse_discover_fields("n1 profile=legacy protocol=1.0 sdk=1.0.0")
     assert p["tag"] == "legacy"
     both = mcrpc.parse_discover_fields(
-        "n1 profile=legacy tag=ha protocol=1.1 sdk=1.1.0"
+        "n1 profile=legacy tag=ha v=1.2"
     )
     assert both["tag"] == "ha"
     assert both["profile"] == "legacy"
@@ -251,7 +248,7 @@ def test_tag_only_and_profile_only_and_both():
 def test_caps_features_canonical_preference():
     # Receivers accept non-canonical order/case/dupes; tokens are folded + unique + sorted
     shaped = mcrpc.parse_discover_fields(
-        "n1 protocol=1.1 sdk=1.1.0 caps=gps,Battery,gps,Display "
+        "n1 v=1.2 caps=gps,Battery,gps,Display "
         "features=request-id,id-addr,Request-Id"
     )
     assert shaped["capabilities"] == ["battery", "display", "gps"]
@@ -260,30 +257,26 @@ def test_caps_features_canonical_preference():
 
 def test_unknown_and_missing_optional():
     shaped = mcrpc.parse_discover_fields(
-        "n1 protocol=1.1 sdk=1.1.0 future_widget=1 vendor=x"
+        "n1 v=1.2 future_widget=1 vendor=x"
     )
     assert "future_widget" in shaped["extra"] or "future_widget" in shaped["fields"]
     assert shaped.get("identity_id") is None
     assert shaped.get("uptime") is None
 
 
-def test_registry_stores_11_cache():
+def test_registry_stores_12_cache():
     reg = NodeRegistry()
     shaped = mcrpc.parse_discover_fields(
-        "node1 id=AABBCCDDEEFF0011 tag=ha profile=ha "
-        "protocol=1.1 protocol_min=1.0 protocol_max=1.1 sdk=1.1.0 "
-        "caps=battery features=id-addr,request-id uptime=9"
+        "node1 id=aabbccdd tag=ha v=1.2 up=9s caps=battery"
     )
     reg.apply_response(node_id="node1", command="discovery", data=shaped)
     n = reg.get("node1")
-    assert n.identity_id == "AABBCCDDEEFF0011"
-    assert n.protocol_min == "1.0"
-    assert n.protocol_max == "1.1"
-    assert n.uptime == 9
-    assert "id-addr" in n.feature_tokens
+    assert n.identity_id == "aabbccdd"
+    assert n.protocol == "1.2"
+    assert n.uptime == "9s"
     view = reg.discover_cache_view()["node1"]
-    assert view["protocol_min"] == "1.0"
-    assert view["uptime"] == 9
+    assert view["protocol"] == "1.2"
+    assert view["uptime"] == "9s"
 
 
 # ---- Bridge answer / discovery / uptime / id ---------------------------------
@@ -385,27 +378,22 @@ def _make_bridge(name="node1", pubkey=FULL_ID):
     return bridge
 
 
-def test_discovery_answer_is_protocol_11():
+def test_discovery_answer_is_protocol_12_slim():
     bridge = _make_bridge()
     req = _Req("Named", "node1", "discovery")
     body = bridge._build_answer_body(req)
     assert body.startswith("node1 ")
-    assert "protocol=1.1" in body
-    assert "protocol_min=1.0" in body
-    assert "protocol_max=1.1" in body
-    assert f"id={FULL_ID}" in body
+    assert "v=1.2" in body
+    assert f"id={FULL_ID[:8].lower()}" in body or f"id={FULL_ID[:8]}" in body
+    assert len([p for p in body.split() if p.startswith("id=")][0].split("=", 1)[1]) == 8
     assert "tag=ha" in body
-    assert "profile=ha" in body
-    assert "uptime=" in body
-    assert "features=" in body
-    assert "sdk=1.1.0" in body
-    assert "protocol=1.0" not in body.replace("protocol_min=1.0", "")
-    # Must not be the old 1.0-shaped emitter
+    assert "up=" in body
+    assert "protocol=" not in body
+    assert "sdk=" not in body
+    assert "features=" not in body
+    assert "profile=" not in body
+    assert "transport=" not in body
     assert not body.startswith("discovery name=")
-    # Canonical features
-    feat = [p for p in body.split() if p.startswith("features=")][0].split("=", 1)[1]
-    assert feat == "id-addr,request-id"
-    assert " " not in feat
 
 
 def test_status_uses_identity_not_tag():
@@ -413,6 +401,9 @@ def test_status_uses_identity_not_tag():
     body = bridge._build_answer_body(_Req("Named", "node1", "status"))
     assert "name=node1" in body
     assert body.startswith("status ")
+    assert "id_full=" in body
+    assert "v=1.2" in body
+    assert "transport=meshcore" in body
 
 
 def test_command_coverage_unsupported_vs_unknown():
@@ -424,7 +415,29 @@ def test_command_coverage_unsupported_vs_unknown():
     )
     assert bridge._build_answer_body(_Req("Named", "node1", "ping")) == "pong"
     help_body = bridge._build_answer_body(_Req("Named", "node1", "help"))
-    assert "ping" in help_body and "ha " not in f" {help_body} "
+    assert "ping" in help_body and "call" in help_body and "ha " not in f" {help_body} "
+
+
+def test_call_ns_action_ok_and_flat_rejected():
+    bridge = _make_bridge()
+
+    class _CallReq:
+        def __init__(self, *args):
+            self.target_kind = "Named"
+            self.target = "node1"
+            self.command = "call"
+            self.args = list(args)
+            self.has_request_id = False
+            self.request_id = None
+
+    ok = bridge._build_answer_body(_CallReq("scene.morning"))
+    assert ok == "ok" or ok.startswith("ok ")
+    assert "=" not in ok or all("=" in t for t in ok.split()[1:])
+    bad = bridge._build_answer_body(_CallReq("button_pressed"))
+    assert "invalid_argument" in bad
+    assert "reason=proc" in bad
+    empty = bridge._build_answer_body(_CallReq())
+    assert "invalid_argument" in empty
 
 
 def test_request_id_prefix_on_answers():
@@ -469,8 +482,8 @@ def test_diagnostics_local_peer():
     assert peer["identity"] == "node1"
     assert peer["id"] == FULL_ID
     assert peer["tag"] == "ha"
-    assert "id-addr" in peer["features"]
-    assert peer["protocol_min"] == "1.0"
+    assert peer["v"] == "1.2"
+    assert peer["features"] in ("", None) or peer["features"] == ""
     # No secrets
     blob = str(diag)
     assert "psk" not in blob.lower() or "transport" in blob  # transport ok; no raw PSK values

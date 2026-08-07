@@ -18,16 +18,20 @@ if ! gh auth status >/dev/null 2>&1 && [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]
 fi
 
 NOTES="$(cat <<NOTES
-## MeshCore HA ${TAG} (RC)
+## MeshCore HA ${TAG} — mcRPC Protocol 1.2
 
-### Fixed / policy
-- battery/gps → err unsupported (SPEC §18)
-- Public channel absolute silence when not in listen_channels
-- Default listen/TX channel = mcCtrl (1)
-- Public out of scope for mcRPC QA
-- Realistic stress methodology (no 100-ping RF gate)
+### mcRPC 1.2
+- Pin \`mcrpc@v1.2.1\` (wire \`v=1.2\`)
+- Slim discovery: \`id=\` 8-hex, \`v=\`, \`up=\`, \`tag=\` — no protocol*/sdk/features on discover
+- Rich status: \`id_full=\`, \`transport=\`, human \`up=\`
+- Inbound \`call ns.action\` → CallResult (\`ok\` / \`err …\` kv-only); flat procs rejected
+- Vendored Python SDK synced to 1.2
 
-See docs/DEVELOPMENT_RULES.md, docs/STRESS_METHODOLOGY.md, docs/RELEASE_PROCESS.md
+### Policy (unchanged)
+- Public channel out of scope for mcRPC QA
+- Default listen/TX = mcCtrl (1)
+
+See docs/RELEASE_PROCESS.md / mcrpc RFC-0002
 NOTES
 )"
 

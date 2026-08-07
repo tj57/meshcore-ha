@@ -253,10 +253,14 @@ async def test_message_sent_fast_path_for_local_chat():
     await _flush(b)
     assert sent, b.stats.get("recent_traces")
     reply = sent[0][1]
-    assert "protocol=1.1" in reply
+    assert "v=1.2" in reply
     assert "id=" in reply
-    assert "profile=ha" in reply
     assert "tag=ha" in reply
+    assert "protocol=" not in reply
+    assert "sdk=" not in reply
+    assert "features=" not in reply
+    id_tok = [p for p in reply.split() if p.startswith("id=")][0].split("=", 1)[1]
+    assert len(id_tok) == 8
 
 
 @pytest.mark.asyncio
@@ -280,8 +284,9 @@ async def test_message_sent_discover_alias_is_still_accepted():
     await _flush(b)
     assert sent
     reply = sent[0][1]
-    assert "protocol=1.1" in reply
+    assert "v=1.2" in reply
     assert "id=" in reply
+    assert "protocol=" not in reply
 
 
 @pytest.mark.asyncio

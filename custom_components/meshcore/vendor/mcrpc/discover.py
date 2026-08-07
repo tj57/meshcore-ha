@@ -1,4 +1,4 @@
-"""Discover builder and discover-line parser."""
+"""Discover builder and discover-line parser (RFC-0002 slim discovery)."""
 
 from __future__ import annotations
 
@@ -6,24 +6,27 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .codec import coerce_number, format_kv, parse_kv_pairs, split_tokens
-from .version import PROTOCOL_VERSION, SDK_VERSION
+from .version import PROTOCOL_VERSION
 
 _CORE_KEYS = frozenset(
     {
-        "profile",
+        "profile",  # legacy
         "tag",
         "fw",
         "firmware",
         "board",
-        "protocol",
+        "protocol",  # legacy
         "protocol_min",
         "protocol_max",
         "sdk",
+        "v",
         "name",
         "id",
+        "id_full",
         "caps",
-        "features",
-        "uptime",
+        "features",  # legacy
+        "uptime",  # legacy seconds
+        "up",
         "auth",
         "transport",
         "vendor",
@@ -44,6 +47,7 @@ class ParsedDiscover:
     protocol_min: str | None = None
     protocol_max: str | None = None
     sdk: str | None = None
+    wire_version: str | None = None
     uptime: Any = None
     features: dict[str, str] = field(default_factory=dict)
     feature_tokens: list[str] = field(default_factory=list)
@@ -74,8 +78,8 @@ class DiscoverBuilder:
         return True
 
     def add_versions(self) -> None:
-        self.add("protocol", PROTOCOL_VERSION)
-        self.add("sdk", SDK_VERSION)
+        """RFC-0002: single wire version field ``v=``."""
+        self.add("v", PROTOCOL_VERSION)
 
     def write(self) -> str:
         name = self._name or "node"
@@ -92,7 +96,7 @@ def _canonicalize_csv_tokens(raw: str | None) -> list[str]:
 
 
 def parse_discover(raw: str | None) -> ParsedDiscover:
-    """Parse a discover reply; unknown fields remain available."""
+    """Parse a discover reply; unknown fields MUST be ignored by clients (kept in fields)."""
     text = (raw or "").strip()
     tokens = split_tokens(text)
     rid = None
@@ -110,7 +114,6 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
     features = {k: v for k, v in fields.items() if k not in _CORE_KEYS}
     caps = [k for k, v in features.items() if str(v).lower() in {"yes", "1", "true"}]
 
-    # RFC-0001 caps= CSV
     if fields.get("caps"):
         for part in str(fields["caps"]).split(","):
             c = part.strip().lower()
@@ -119,6 +122,12 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
         caps = sorted(set(caps))
 
     feature_tokens = _canonicalize_csv_tokens(fields.get("features"))
+
+    uptime = params.get("up")
+    if uptime is None:
+        uptime = params.get("uptime")
+
+    wire = fields.get("v") or fields.get("protocol")
 
     return ParsedDiscover(
         raw=text,
@@ -132,7 +141,8 @@ def parse_discover(raw: str | None) -> ParsedDiscover:
         protocol_min=fields.get("protocol_min"),
         protocol_max=fields.get("protocol_max"),
         sdk=fields.get("sdk"),
-        uptime=params.get("uptime"),
+        wire_version=wire,
+        uptime=uptime,
         features=features,
         feature_tokens=feature_tokens,
         capabilities=caps,

@@ -203,9 +203,16 @@ class NodeRegistry:
                 node.identity_id = str(data["identity_id"])
             elif data.get("id") is not None:
                 node.identity_id = str(data["id"])
+            # Prefer full hex when status-shaped discovery extras include id_full
+            id_full = data.get("id_full")
+            if id_full and len(str(id_full)) > len(str(node.identity_id or "")):
+                node.identity_id = str(id_full)
             if data.get("firmware") is not None:
                 node.firmware = data.get("firmware")
-            if data.get("protocol") is not None:
+            # RFC-0002: wire version is ``v=``; keep ``protocol`` as alias
+            if data.get("v") is not None:
+                node.protocol = str(data.get("v"))
+            elif data.get("protocol") is not None:
                 node.protocol = data.get("protocol")
             if data.get("protocol_min") is not None:
                 node.protocol_min = str(data.get("protocol_min"))
@@ -217,6 +224,8 @@ class NodeRegistry:
                 node.board = data.get("board")
             if data.get("uptime") is not None:
                 node.uptime = data.get("uptime")
+            elif data.get("up") is not None:
+                node.uptime = data.get("up")
             if isinstance(data.get("features"), dict):
                 node.features.update(data["features"])
             tokens = data.get("feature_tokens")
@@ -264,6 +273,15 @@ class NodeRegistry:
                 node.firmware = data.get("firmware")
             if data.get("uptime") is not None:
                 node.uptime = data.get("uptime")
+            elif data.get("up") is not None:
+                node.uptime = data.get("up")
+            if data.get("v") is not None:
+                node.protocol = str(data.get("v"))
+            id_full = data.get("id_full")
+            if id_full:
+                node.identity_id = str(id_full)
+            elif data.get("id") is not None and not node.identity_id:
+                node.identity_id = str(data["id"])
             if data.get("battery") is not None:
                 node.battery["percentage"] = data.get("battery")
             if data.get("voltage") is not None:

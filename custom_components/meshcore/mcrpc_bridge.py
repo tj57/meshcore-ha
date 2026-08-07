@@ -205,32 +205,71 @@ class McRpcBridge:
         return "node"
 
     def _feature_tokens(self) -> list[str]:
-        # HA peer supports @id + request-id; no device caps → no caps-in-discovery
-        return ["id-addr", "request-id"]
+        # Protocol 1.2: feature flags are mandatory in the spec — not advertised
+        # on every discovery line (RFC-0002).
+        return []
 
     def _build_discovery_line(self) -> str:
-        """RFC-0001 rev03 Protocol 1.1 discovery (``<name> key=value …``)."""
+        """RFC-0002 Protocol 1.2 slim discovery (``<name> key=value …``)."""
         assert self._mcrpc is not None
         name = self._identity_name()
-        id_hex = self._local_identity_id()
-        sdk = getattr(self._mcrpc, "SDK_VERSION", "1.1.0")
-        proto = getattr(self._mcrpc, "PROTOCOL_VERSION", "1.1")
-        features = self._canonicalize_csv(self._feature_tokens())
+        id_full = self._local_identity_id()
+        id8 = self._mcrpc.short_id8(id_full)
+        proto = getattr(self._mcrpc, "PROTOCOL_VERSION", "1.2")
+        up = self._mcrpc.format_uptime(self._local_uptime_seconds())
         parts = [
             name,
-            f"id={id_hex}",
-            "profile=ha",  # legacy 1.0 readers
-            "tag=ha",  # UI metadata only — not an RF address
+            f"id={id8}",
             f"fw=meshcore-ha-{self._integration_version()}",
-            f"uptime={self._local_uptime_seconds()}",
-            f"protocol={proto}",
-            "protocol_min=1.0",
-            f"protocol_max={proto}",
-            f"sdk={sdk}",
-            f"features={features}",
-            "transport=meshcore",
+            f"v={proto}",
+            "tag=ha",
+            f"up={up}",
         ]
         return " ".join(parts)
+
+    def _build_status_line(self) -> str:
+        """RFC-0002 rich status for the HA peer."""
+        assert self._mcrpc is not None
+        name = self._identity_name()
+        id_full = self._local_identity_id()
+        id8 = self._mcrpc.short_id8(id_full)
+        proto = getattr(self._mcrpc, "PROTOCOL_VERSION", "1.2")
+        up = self._mcrpc.format_uptime(self._local_uptime_seconds())
+        fw = f"meshcore-ha-{self._integration_version()}"
+        return (
+            f"status name={name} id={id8} id_full={id_full} fw={fw} v={proto} "
+            f"tag=ha up={up} transport=meshcore"
+        )
+
+    def _build_call_result(self, req) -> str:
+        """Handle inbound ``call ns.action`` (parser-neutral ordinary command)."""
+        assert self._mcrpc is not None
+        args = list(getattr(req, "args", None) or [])
+        if not args or not self._mcrpc.is_valid_proc(args[0]):
+            return self._mcrpc.build_call_err("invalid_argument", reason="proc")
+        proc = args[0].lower()
+        kv: dict[str, str] = {}
+        for tok in args[1:]:
+            if isinstance(tok, str) and "=" in tok:
+                k, v = tok.split("=", 1)
+                kv[k] = v
+        # Fire HA bus event so automations can react; always ACK with CallResult.
+        try:
+            self.hass.bus.async_fire(
+                "meshcore_mcrpc_call",
+                {
+                    "proc": proc,
+                    "args": kv,
+                    "source": getattr(req, "target", None),
+                    "request_id": getattr(req, "request_id", None)
+                    if getattr(req, "has_request_id", False)
+                    else None,
+                    "entry_id": self.entry.entry_id,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            return self._mcrpc.build_call_err("internal")
+        return self._mcrpc.build_call_ok()
 
     # ---- compat cache views (list_nodes / has_capability) --------------------
     @property
@@ -1154,11 +1193,14 @@ class McRpcBridge:
             "profile_legacy": "ha",
             "caps": [],
             "features": self._canonicalize_csv(self._feature_tokens()),
-            "protocol": getattr(self._mcrpc, "PROTOCOL_VERSION", None) if self._mcrpc else None,
-            "protocol_min": "1.0",
-            "protocol_max": getattr(self._mcrpc, "PROTOCOL_VERSION", None) if self._mcrpc else None,
+            "v": getattr(self._mcrpc, "PROTOCOL_VERSION", None) if self._mcrpc else None,
             "sdk": getattr(self._mcrpc, "SDK_VERSION", None) if self._mcrpc else None,
             "uptime_seconds": self._local_uptime_seconds(),
+            "up": (
+                self._mcrpc.format_uptime(self._local_uptime_seconds())
+                if self._mcrpc
+                else None
+            ),
             "fw": f"meshcore-ha-{self._integration_version()}",
         }
         return {
@@ -1267,26 +1309,24 @@ class McRpcBridge:
     )
 
     def _build_answer_body(self, req) -> str:
-        """Minimal HA-side answers for inbound mesh requests (RFC-0001)."""
+        """Minimal HA-side answers for inbound mesh requests (RFC-0002)."""
         assert self._mcrpc is not None
         cmd = (req.command or "").lower()
         rid = req.request_id if getattr(req, "has_request_id", False) else None
-        name = self._identity_name()
-        uptime = self._local_uptime_seconds()
-        fw = f"meshcore-ha-{self._integration_version()}"
 
         if cmd == "ping":
             body = "pong"
         elif cmd == "status":
-            # Identity name — not tag/role. Keep legacy profile= for 1.0 readers.
-            body = f"status name={name} tag=ha profile=ha fw={fw} uptime={uptime}"
+            body = self._build_status_line()
         elif cmd in {"discover", "discovery"}:
             body = self._build_discovery_line()
         elif cmd == "help":
-            body = "ping status discovery help caps"
+            body = "ping status discovery help caps call"
         elif cmd == "caps":
             # No device sensor capabilities on the HA peer
             body = "ok"
+        elif cmd == "call":
+            body = self._build_call_result(req)
         elif cmd in self._KNOWN_UNAVAILABLE_COMMANDS:
             body = self._mcrpc.build_error("unsupported")
         else:

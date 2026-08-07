@@ -38,7 +38,8 @@ def _read_token(s: str, i: int, *, ident_only: bool) -> tuple[str | None, int]:
 def strip_sender_prefix(text: str | None) -> str:
     """Strip chat-style ``Name: payload`` prefixes.
 
-    Requires whitespace after ``:``. Protocol tokens such as ``group:sensors``
+    Requires whitespace after ``:``. Sender names may contain spaces (MeshCore
+    ``Home Assistant: all ping``). Protocol tokens such as ``group:sensors``
     are left untouched (same rule as C++ ``Parser::stripSenderPrefix``).
     """
     if text is None:
@@ -46,9 +47,6 @@ def strip_sender_prefix(text: str | None) -> str:
     colon = text.find(":")
     if colon < 0:
         return text
-    for c in text[:colon]:
-        if c in " \t":
-            return text
     if colon + 1 >= len(text) or text[colon + 1] not in " \t":
         return text
     msg = text[colon + 1 :]
