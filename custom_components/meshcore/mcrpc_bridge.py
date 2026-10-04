@@ -7,6 +7,7 @@ Wire protocol details stay inside the standalone ``mcrpc`` package.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 import uuid
